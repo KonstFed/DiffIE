@@ -1,0 +1,27 @@
+[project]
+name = "diffopenie"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "KonstFed",email = "konstfed12@gmail.ru"}
+]
+readme = "README.md"
+requires-python = "<3.15,>=3.12"
+dependencies = [
+    "zenodo-get (>=2.0.0,<3.0.0)",
+    "pandas (>=2.3.3,<3.0.0)",
+    "ipykernel (>=7.1.0,<8.0.0)",
+    "datasets (>=3.6.0,<4.0.0)",
+    "torch (>=2.9.0,<3.0.0)",
+    "matplotlib (>=3.10.7,<4.0.0)",
+    "transformers (>=4.57.1,<5.0.0)",
+    "protobuf (>=6.33.0,<7.0.0)"
+]
+
+[tool.poetry]
+packages = [{include = "diffopenie", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
