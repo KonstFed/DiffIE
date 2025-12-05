@@ -48,6 +48,7 @@ def word_to_token_indices(word_ids: list[int | None], word_start: int, word_end:
 
 
 class LSOIEDataset(Dataset):
+    """Dataset for the LSOIE dataset."""
     def __init__(self, split: str = "train", tokenizer_name: str = "bert-base-uncased"):
         self.split = split
         self.tokenizer = BertTokenizerFast.from_pretrained(tokenizer_name)
@@ -57,10 +58,18 @@ class LSOIEDataset(Dataset):
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
         self.dataset = dataset.sort_values(by="sentence")
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.dataset)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> dict:
+        """get tokens and triple for the given index
+
+        Args:
+            idx (int) 
+
+        Returns:
+            dict: tokens, token_ids, spans
+        """
         row = self.dataset.iloc[idx]
         words = row["words"]
         labels = row["label"]
@@ -89,8 +98,8 @@ class LSOIEDataset(Dataset):
             "tokens": tokens,
             "token_ids": encoding["input_ids"],
             "spans": token_triplets,  # ((s_start, s_end), (o_start, o_end), (p_start, p_end))
-            "word_ids": word_ids,
-            "words": words,
-            "labels": labels,
+            # "word_ids": word_ids,
+            # "words": words,
+            # "labels": labels,
         }
 
