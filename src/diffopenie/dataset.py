@@ -1,3 +1,4 @@
+import torch
 from torch.utils.data import Dataset
 from datasets import load_dataset
 from transformers import BertTokenizerFast
@@ -47,11 +48,11 @@ def word_to_token_indices(word_ids: list[int | None], word_start: int, word_end:
     return token_start, token_end
 
 
-class LSOIEDataset(Dataset):
+class SpanLSOIEDataset(Dataset):
     """Dataset for the LSOIE dataset."""
     def __init__(self, split: str = "train", tokenizer_name: str = "bert-base-uncased"):
         self.split = split
-        self.tokenizer = BertTokenizerFast.from_pretrained(tokenizer_name)
+        self.tokenizer = BertTokenizerFast.from_pretrained(tokenizer_name, use_fast=True)
         
         dataset = load_dataset("wardenga/lsoie")[split]
         dataset = pd.DataFrame(dataset)
@@ -103,3 +104,60 @@ class LSOIEDataset(Dataset):
             # "labels": labels,
         }
 
+
+class SequenceLSOEIDataset(SpanLSOIEDataset):
+    def __getitem__(self, idx: int) -> dict:
+        """get tokens and triple for the given index
+
+        Args:
+            idx (int) 
+
+        Returns:
+            dict: tokens, token_ids, spans
+        """
+        row = self.dataset.iloc[idx]
+        words = row["words"]
+        labels = row["label"]
+
+        encoding = self.tokenizer(
+            words,
+            is_split_into_words=True,
+            add_special_tokens=False
+        )
+        
+        tokens = self.tokenizer.convert_ids_to_tokens(encoding["input_ids"])
+        word_ids = encoding.word_ids()
+
+        subject_labels = [i for i, t in enumerate(labels) if t.startswith("A0")]
+        object_labels = [i for i, t in enumerate(labels) if t.startswith("A1")]
+        predicate_labels = [i for i, t in enumerate(labels) if t.startswith("P")]
+
+        subject_indices = [i for i, word_id in enumerate(word_ids) if word_id in subject_labels]
+        object_indices = [i for i, word_id in enumerate(word_ids) if word_id in object_labels]
+        predicate_indices = [i for i, word_id in enumerate(word_ids) if word_id in predicate_labels]
+
+        label = torch.zeros(len(tokens), dtype=torch.long)
+        label[subject_indices] = 1
+        label[object_indices] = 2
+        label[predicate_indices] = 3
+
+        # sanity check
+        si = set(subject_indices)
+        oi = set(object_indices)
+        pi = set(predicate_indices)
+
+        if (si & oi) or (si & pi) or (oi & pi):
+            raise ValueError("Subject, object, and predicate indices must be disjoint")
+        # sanity check end
+
+        return {
+            "tokens": tokens,
+            "token_ids": encoding["input_ids"],
+            "labels": label,
+        }
+
+if __name__ == "__main__":
+    ds = SequenceLSOEIDataset(split="train")
+    print(ds[0])
+    # for i in range(len(ds)):
+    #     print(ds[i])
