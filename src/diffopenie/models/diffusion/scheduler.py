@@ -2,26 +2,37 @@ import torch
 import torch.nn as nn
 
 
-class LinearScheduler:
+class LinearScheduler(nn.Module):
+    """
+    Linear noise schedule for diffusion models.
+    """
     def __init__(self, num_steps: int, beta_start: float = 0.0001, beta_end: float = 0.02):
+        super().__init__()
         self.num_steps = num_steps
         self.beta_start = beta_start
         self.beta_end = beta_end
 
-        self.betas = torch.linspace(beta_start, beta_end, num_steps)
-        self.alphas = 1.0 - self.betas
-
-        # TODO: handle CUDA with register_buffer and etc.
-
-        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
-        self.sqrt_alpha_cumprod = torch.sqrt(self.alphas_cumprod)
-        self.sqrt_one_minus_alpha_cumprod = torch.sqrt(1 - self.alphas_cumprod)
-        self.alphas_cumprod_prev = torch.cat(
-            [torch.tensor([1.0]), self.alphas_cumprod[:-1]]
+        # Compute noise schedule parameters
+        betas = torch.linspace(beta_start, beta_end, num_steps)
+        alphas = 1.0 - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        sqrt_alpha_cumprod = torch.sqrt(alphas_cumprod)
+        sqrt_one_minus_alpha_cumprod = torch.sqrt(1 - alphas_cumprod)
+        alphas_cumprod_prev = torch.cat(
+            [torch.tensor([1.0]), alphas_cumprod[:-1]]
         )
+        
+        # Register buffers - these will automatically be moved to the correct device
+        self.register_buffer("betas", betas)
+        self.register_buffer("alphas", alphas)
+        self.register_buffer("alphas_cumprod", alphas_cumprod)
+        self.register_buffer("sqrt_alpha_cumprod", sqrt_alpha_cumprod)
+        self.register_buffer("sqrt_one_minus_alpha_cumprod", sqrt_one_minus_alpha_cumprod)
+        self.register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
 
         # compute variance for reverse process
-        self.posterior_variance = self.betas * (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod)
+        posterior_variance = betas * (1 - alphas_cumprod_prev) / (1 - alphas_cumprod)
+        self.register_buffer("posterior_variance", posterior_variance)
 
     def q_sample(self, x_0: torch.FloatTensor, t: torch.LongTensor, noise: torch.FloatTensor | None = None) -> torch.FloatTensor:
         if noise is None:
