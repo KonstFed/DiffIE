@@ -23,8 +23,9 @@ class LinearScheduler:
         # compute variance for reverse process
         self.posterior_variance = self.betas * (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod)
 
-    def q_sample(self, x_0: torch.FloatTensor, t: torch.LongTensor) -> torch.FloatTensor:
-        noise = torch.randn_like(x_0)
+    def q_sample(self, x_0: torch.FloatTensor, t: torch.LongTensor, noise: torch.FloatTensor | None = None) -> torch.FloatTensor:
+        if noise is None:
+            noise = torch.randn_like(x_0)
 
         # this .view are for broadcasting into any dimension of x_0
         coef1 = self.sqrt_alpha_cumprod[t].view(-1, *([1] * (x_0.dim() - 1)))
