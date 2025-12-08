@@ -18,6 +18,7 @@ dependencies = [
     "protobuf (>=6.33.0,<7.0.0)",
     "plotly>=6.4.0",
     "nbformat>=4.2.0",
+    "pytest>=9.0.2",
 ]
 
 [tool.poetry]
