@@ -80,11 +80,21 @@ def main():
         pad_label_idx=0,  # Padding label index (0 = O/padding)
     )
     
-    # Create dataloader
+    # Create dataloaders
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
+        collate_fn=collator,
+        num_workers=4,
+    )
+    
+    # Create validation dataloader (optional)
+    val_dataset = SequenceLSOEIDataset(split="validation")  # or "test" depending on your dataset
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
         collate_fn=collator,
         num_workers=4,
     )
@@ -95,15 +105,18 @@ def main():
     print(f"Number of epochs: {num_epochs}")
     print(f"Number of classes: {num_classes} (0=O, 1=subject, 2=object, 3=predicate)")
     print(f"Diffusion steps: {num_steps}")
-    print(f"Dataset size: {len(train_dataset)}")
+    print(f"Train dataset size: {len(train_dataset)}")
+    print(f"Val dataset size: {len(val_dataset)}")
     
-    # Start training
+    # Start training with validation
     trainer.train(
         train_dataloader=train_dataloader,
         num_epochs=num_epochs,
         log_interval=100,
         save_path="./checkpoints",
         save_interval=1,
+        val_dataloader=val_dataloader,  # Pass validation dataloader
+        num_classes=num_classes,  # Number of classes for metrics
     )
 
 

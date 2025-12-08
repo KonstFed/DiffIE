@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from typing import Dict, Optional
+from collections import defaultdict
 
 from tqdm import tqdm
 
@@ -44,13 +45,10 @@ class DiffusionTrainer:
             weight_decay: Weight decay for optimizer
         """
         self.denoiser = denoiser.to(device)
-        self.scheduler = scheduler
+        self.scheduler = scheduler.to(device)  # Scheduler is now nn.Module, so .to(device) moves all buffers
         self.label_mapper = label_mapper.to(device)
         self.encoder = encoder.to(device)
         self.device = device
-        
-        # Move scheduler tensors to device
-        self._move_scheduler_to_device()
         
         # Setup optimizer
         self.optimizer = AdamW(
@@ -72,17 +70,6 @@ class DiffusionTrainer:
     def set_lr_scheduler(self, scheduler):
         """Set learning rate scheduler."""
         self.lr_scheduler = scheduler
-    
-    def _move_scheduler_to_device(self):
-        """Move scheduler tensors to the correct device."""
-        for attr in [
-            "betas", "alphas", "alphas_cumprod", "sqrt_alpha_cumprod",
-            "sqrt_one_minus_alpha_cumprod", "alphas_cumprod_prev", "posterior_variance"
-        ]:
-            if hasattr(self.scheduler, attr):
-                tensor = getattr(self.scheduler, attr)
-                if isinstance(tensor, torch.Tensor):
-                    setattr(self.scheduler, attr, tensor.to(self.device))
     
     def train_step(
         self,
@@ -210,6 +197,180 @@ class DiffusionTrainer:
             "loss": avg_loss,
         }
     
+    def validate_step(
+        self,
+        batch: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Perform a single validation step (no gradient computation).
+        
+        Args:
+            batch: Dictionary containing:
+                - token_ids: [B, L] token IDs
+                - attention_mask: [B, L] attention mask
+                - label_indices: [B, L] label indices
+        
+        Returns:
+            Dictionary with predictions and labels for metric calculation
+        """
+        self.denoiser.eval()
+        self.encoder.eval()
+        
+        with torch.no_grad():
+            # Move batch to device
+            token_ids = batch["token_ids"].to(self.device)  # [B, L]
+            attention_mask = batch["attention_mask"].to(self.device)  # [B, L]
+            label_indices = batch["label_indices"].to(self.device)  # [B, L]
+            
+            B, L = token_ids.shape
+            
+            # Get BERT token embeddings
+            token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
+            
+            # Convert label indices to embeddings (x_0)
+            x_0 = self.label_mapper(label_indices)  # [B, L, x_dim]
+            
+            # For validation, use t=0 (no noise) to get clean predictions
+            t = torch.zeros(B, dtype=torch.long, device=self.device)  # [B]
+            
+            # Predict x_0 from clean x_0 (t=0 means no noise added)
+            x0_pred = self.denoiser(
+                x_t=x_0,  # Use clean embeddings as input when t=0
+                t=t,
+                token_embeddings=token_embeddings,
+                attn_mask=attention_mask.bool(),
+            )  # [B, L, x_dim]
+            
+            # Convert predictions back to label indices
+            pred_indices = self.label_mapper.reverse(x0_pred)  # [B, L]
+            
+            return {
+                "predictions": pred_indices,
+                "labels": label_indices,
+                "attention_mask": attention_mask,
+            }
+    
+    def compute_metrics(
+        self,
+        predictions: torch.Tensor,  # [B, L]
+        labels: torch.Tensor,  # [B, L]
+        attention_mask: torch.Tensor,  # [B, L]
+        num_classes: int = 4,
+    ) -> Dict[str, float]:
+        """
+        Compute sequence labeling metrics.
+        
+        Args:
+            predictions: Predicted label indices [B, L]
+            labels: True label indices [B, L]
+            attention_mask: Attention mask (1 for real tokens, 0 for padding) [B, L]
+            num_classes: Number of label classes
+        
+        Returns:
+            Dictionary with accuracy, precision, recall, F1 (per class and macro-averaged)
+        """
+        # Flatten and mask out padding tokens
+        mask = attention_mask.bool()
+        pred_flat = predictions[mask].cpu()
+        label_flat = labels[mask].cpu()
+        
+        # Overall accuracy
+        correct = (pred_flat == label_flat).sum().item()
+        total = pred_flat.numel()
+        accuracy = correct / total if total > 0 else 0.0
+        
+        # Per-class metrics
+        class_metrics = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+        
+        for class_idx in range(num_classes):
+            pred_class = (pred_flat == class_idx)
+            label_class = (label_flat == class_idx)
+            
+            tp = (pred_class & label_class).sum().item()
+            fp = (pred_class & ~label_class).sum().item()
+            fn = (~pred_class & label_class).sum().item()
+            
+            class_metrics[class_idx] = {
+                "tp": tp,
+                "fp": fp,
+                "fn": fn,
+            }
+        
+        # Calculate precision, recall, F1 per class
+        class_precision = {}
+        class_recall = {}
+        class_f1 = {}
+        
+        for class_idx in range(num_classes):
+            metrics = class_metrics[class_idx]
+            tp, fp, fn = metrics["tp"], metrics["fp"], metrics["fn"]
+            
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+            
+            class_precision[class_idx] = precision
+            class_recall[class_idx] = recall
+            class_f1[class_idx] = f1
+        
+        # Macro-averaged metrics
+        macro_precision = sum(class_precision.values()) / num_classes
+        macro_recall = sum(class_recall.values()) / num_classes
+        macro_f1 = sum(class_f1.values()) / num_classes
+        
+        # Weighted F1 (weighted by class frequency)
+        class_counts = torch.bincount(label_flat, minlength=num_classes).float()
+        class_weights = class_counts / class_counts.sum() if class_counts.sum() > 0 else torch.ones(num_classes) / num_classes
+        weighted_f1 = sum(class_f1[i] * class_weights[i].item() for i in range(num_classes))
+        
+        return {
+            "accuracy": accuracy,
+            "macro_precision": macro_precision,
+            "macro_recall": macro_recall,
+            "macro_f1": macro_f1,
+            "weighted_f1": weighted_f1,
+            "class_precision": class_precision,
+            "class_recall": class_recall,
+            "class_f1": class_f1,
+        }
+    
+    def validate(
+        self,
+        val_dataloader: DataLoader,
+        num_classes: int = 4,
+    ) -> Dict[str, float]:
+        """
+        Run validation on the validation set.
+        
+        Args:
+            val_dataloader: DataLoader for validation data
+            num_classes: Number of label classes
+        
+        Returns:
+            Dictionary with validation metrics
+        """
+        all_predictions = []
+        all_labels = []
+        all_masks = []
+        
+        progress_bar = tqdm(val_dataloader, desc="Validating", leave=False)
+        
+        for batch in progress_bar:
+            results = self.validate_step(batch)
+            all_predictions.append(results["predictions"])
+            all_labels.append(results["labels"])
+            all_masks.append(results["attention_mask"])
+        
+        # Concatenate all batches
+        predictions = torch.cat(all_predictions, dim=0)  # [N, L]
+        labels = torch.cat(all_labels, dim=0)  # [N, L]
+        attention_mask = torch.cat(all_masks, dim=0)  # [N, L]
+        
+        # Compute metrics
+        metrics = self.compute_metrics(predictions, labels, attention_mask, num_classes)
+        
+        return metrics
+    
     def train(
         self,
         train_dataloader: DataLoader,
@@ -217,6 +378,8 @@ class DiffusionTrainer:
         log_interval: int = 100,
         save_path: Optional[str] = None,
         save_interval: int = 1,
+        val_dataloader: Optional[DataLoader] = None,
+        num_classes: int = 4,
     ):
         """
         Main training loop.
@@ -227,17 +390,40 @@ class DiffusionTrainer:
             log_interval: Logging interval
             save_path: Path to save checkpoints (optional)
             save_interval: Save checkpoint every N epochs
+            val_dataloader: DataLoader for validation data (optional)
+            num_classes: Number of label classes for validation metrics
         """
         print(f"Starting training for {num_epochs} epochs on {self.device}")
         print(f"Model parameters: {sum(p.numel() for p in self.denoiser.parameters()):,}")
+        if val_dataloader is not None:
+            print(f"Validation enabled with {len(val_dataloader.dataset)} examples")
         
         for epoch in range(1, num_epochs + 1):
-            metrics = self.train_epoch(train_dataloader, epoch, log_interval)
+            # Training
+            train_metrics = self.train_epoch(train_dataloader, epoch, log_interval)
             
+            # Validation
+            val_metrics = None
+            if val_dataloader is not None:
+                val_metrics = self.validate(val_dataloader, num_classes)
+            
+            # Print metrics
             print(
                 f"Epoch {epoch}/{num_epochs} completed. "
-                f"Average loss: {metrics['loss']:.4f}"
+                f"Train loss: {train_metrics['loss']:.4f}"
             )
+            if val_metrics is not None:
+                print(
+                    f"  Val accuracy: {val_metrics['accuracy']:.4f}, "
+                    f"Val macro F1: {val_metrics['macro_f1']:.4f}, "
+                    f"Val weighted F1: {val_metrics['weighted_f1']:.4f}"
+                )
+                # Print per-class F1 scores
+                print("  Per-class F1:", end=" ")
+                for class_idx in range(num_classes):
+                    class_name = ["O", "Subject", "Object", "Predicate"][class_idx] if class_idx < 4 else f"Class{class_idx}"
+                    print(f"{class_name}: {val_metrics['class_f1'][class_idx]:.4f}", end="  ")
+                print()
             
             # Save checkpoint
             if save_path and epoch % save_interval == 0:
