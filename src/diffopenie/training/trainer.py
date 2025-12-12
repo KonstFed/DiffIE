@@ -357,9 +357,10 @@ class DiffusionTrainer:
         
         for batch in progress_bar:
             results = self.validate_step(batch)
-            all_predictions.append(results["predictions"])
-            all_labels.append(results["labels"])
-            all_masks.append(results["attention_mask"])
+            # flatten and make "one sequence"
+            all_predictions.append(results["predictions"].flatten())
+            all_labels.append(results["labels"].flatten())
+            all_masks.append(results["attention_mask"].flatten())
         
         # Concatenate all batches
         predictions = torch.cat(all_predictions, dim=0)  # [N, L]
@@ -401,6 +402,7 @@ class DiffusionTrainer:
         for epoch in range(1, num_epochs + 1):
             # Training
             train_metrics = self.train_epoch(train_dataloader, epoch, log_interval)
+            # train_metrics = {"loss": 0.0}
             
             # Validation
             val_metrics = None
