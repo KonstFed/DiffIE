@@ -203,6 +203,7 @@ class DiffusionTrainer:
     ) -> Dict[str, torch.Tensor]:
         """
         Perform a single validation step (no gradient computation).
+        Uses the denoiser's inference method for step-by-step denoising.
         
         Args:
             batch: Dictionary containing:
@@ -212,6 +213,56 @@ class DiffusionTrainer:
         
         Returns:
             Dictionary with predictions and labels for metric calculation
+        """
+        self.scheduler.eval()
+        self.denoiser.eval()
+        self.encoder.eval()
+
+        
+        with torch.no_grad():
+            # Move batch to device
+            token_ids = batch["token_ids"].to(self.device)  # [B, L]
+            attention_mask = batch["attention_mask"].to(self.device)  # [B, L]
+            label_indices = batch["label_indices"].to(self.device)  # [B, L]
+            
+            # Get BERT token embeddings
+            token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
+            
+            # TODO: idea: make fixed noise for validation
+
+            # Perform step-by-step inference (same as inference)
+            noise_shape = (token_ids.shape[0], token_ids.shape[1], self.label_mapper.embedding_dim)
+            x0_pred = self.scheduler.inference(
+                denoiser=self.denoiser,
+                shape=noise_shape,
+                condition=token_embeddings,
+            )  # [B, L, x_dim]
+            
+            # Convert predictions back to label indices
+            pred_indices = self.label_mapper.reverse(x0_pred)  # [B, L]
+            
+            return {
+                "predictions": pred_indices,
+                "labels": label_indices,
+                "attention_mask": attention_mask,
+            }
+    
+    def validate_loss_step(
+        self,
+        batch: Dict[str, torch.Tensor],
+    ) -> Dict[str, float]:
+        """
+        Perform a single validation step that only computes loss (no gradient computation).
+        Similar to train_step but without backward pass.
+        
+        Args:
+            batch: Dictionary containing:
+                - token_ids: [B, L] token IDs
+                - attention_mask: [B, L] attention mask
+                - label_indices: [B, L] label indices
+        
+        Returns:
+            Dictionary with loss value
         """
         self.denoiser.eval()
         self.encoder.eval()
@@ -230,25 +281,67 @@ class DiffusionTrainer:
             # Convert label indices to embeddings (x_0)
             x_0 = self.label_mapper(label_indices)  # [B, L, x_dim]
             
-            # For validation, use t=0 (no noise) to get clean predictions
-            t = torch.zeros(B, dtype=torch.long, device=self.device)  # [B]
+            # Sample random timesteps
+            t = torch.randint(
+                0,
+                self.scheduler.num_steps,
+                size=(B,),
+                device=self.device,
+                dtype=torch.long,
+            )  # [B]
             
-            # Predict x_0 from clean x_0 (t=0 means no noise added)
+            # Sample noise
+            noise = torch.randn_like(x_0)  # [B, L, x_dim]
+            
+            # Forward diffusion: add noise to x_0
+            x_t = self.scheduler.q_sample(x_0, t, noise)  # [B, L, x_dim]
+            
+            # Predict x_0 from x_t
             x0_pred = self.denoiser(
-                x_t=x_0,  # Use clean embeddings as input when t=0
+                x_t=x_t,
                 t=t,
                 token_embeddings=token_embeddings,
                 attn_mask=attention_mask.bool(),
             )  # [B, L, x_dim]
             
-            # Convert predictions back to label indices
-            pred_indices = self.label_mapper.reverse(x0_pred)  # [B, L]
+            # Compute loss: MSE between predicted and true x_0
+            # Only compute loss on non-padding tokens
+            mask = attention_mask.unsqueeze(-1).expand_as(x_0)  # [B, L, x_dim]
+            loss = self.criterion(x0_pred * mask, x_0 * mask)
             
             return {
-                "predictions": pred_indices,
-                "labels": label_indices,
-                "attention_mask": attention_mask,
+                "loss": loss.item(),
             }
+    
+    def validate_loss(
+        self,
+        val_dataloader: DataLoader,
+    ) -> Dict[str, float]:
+        """
+        Compute validation loss over the entire validation dataset.
+        
+        Args:
+            val_dataloader: DataLoader for validation data
+        
+        Returns:
+            Dictionary with average validation loss
+        """
+        total_loss = 0.0
+        num_batches = 0
+        
+        progress_bar = tqdm(val_dataloader, desc="Computing validation loss", leave=False)
+        
+        for batch in progress_bar:
+            metrics = self.validate_loss_step(batch)
+            total_loss += metrics["loss"]
+            num_batches += 1
+            progress_bar.set_postfix({"loss": metrics["loss"]})
+        
+        avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+        
+        return {
+            "val_loss": avg_loss,
+        }
     
     def compute_metrics(
         self,
@@ -340,7 +433,7 @@ class DiffusionTrainer:
         num_classes: int = 4,
     ) -> Dict[str, float]:
         """
-        Run validation on the validation set.
+        Run full inference like validation.
         
         Args:
             val_dataloader: DataLoader for validation data
@@ -375,12 +468,13 @@ class DiffusionTrainer:
     def train(
         self,
         train_dataloader: DataLoader,
-        num_epochs: int = 10,
+        num_epochs: int = 11,
         log_interval: int = 100,
         save_path: Optional[str] = None,
         save_interval: int = 1,
         val_dataloader: Optional[DataLoader] = None,
         num_classes: int = 4,
+        val_full_interval: int = 5,
     ):
         """
         Main training loop.
@@ -393,20 +487,28 @@ class DiffusionTrainer:
             save_interval: Save checkpoint every N epochs
             val_dataloader: DataLoader for validation data (optional)
             num_classes: Number of label classes for validation metrics
+            val_full_interval: Run full validation (with metrics) every N epochs. 
+                Validation loss is computed after every epoch.
         """
         print(f"Starting training for {num_epochs} epochs on {self.device}")
         print(f"Model parameters: {sum(p.numel() for p in self.denoiser.parameters()):,}")
         if val_dataloader is not None:
             print(f"Validation enabled with {len(val_dataloader.dataset)} examples")
+            print(f"Validation loss computed every epoch, full validation every {val_full_interval} epochs")
         
         for epoch in range(1, num_epochs + 1):
             # Training
-            train_metrics = self.train_epoch(train_dataloader, epoch, log_interval)
-            # train_metrics = {"loss": 0.0}
+            # train_metrics = self.train_epoch(train_dataloader, epoch, log_interval)
+            train_metrics = {"loss": 0.0}
             
-            # Validation
-            val_metrics = None
+            # Validation loss (computed after every epoch)
+            val_loss_metrics = None
             if val_dataloader is not None:
+                val_loss_metrics = self.validate_loss(val_dataloader)
+            
+            # Full validation with metrics (computed every N epochs)
+            val_metrics = None
+            if val_dataloader is not None and epoch % val_full_interval == 0:
                 val_metrics = self.validate(val_dataloader, num_classes)
             
             # Print metrics
@@ -414,6 +516,9 @@ class DiffusionTrainer:
                 f"Epoch {epoch}/{num_epochs} completed. "
                 f"Train loss: {train_metrics['loss']:.4f}"
             )
+            if val_loss_metrics is not None:
+                print(f"  Val loss: {val_loss_metrics['val_loss']:.4f}")
+            
             if val_metrics is not None:
                 print(
                     f"  Val accuracy: {val_metrics['accuracy']:.4f}, "

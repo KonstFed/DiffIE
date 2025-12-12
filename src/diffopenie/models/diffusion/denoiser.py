@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class AdaLayerNorm(nn.Module):
@@ -102,7 +101,9 @@ class DiffusionSLDenoiser(nn.Module):
     ):
         super().__init__()
 
+        self.x_dim = x_dim
         self.d_model = d_model
+        self.num_steps = num_steps
 
         # --- Condition Embedder: c_t = Linear(Concat(H, Embeds(t))) ---
         self.time_emb = nn.Embedding(num_steps, d_model)

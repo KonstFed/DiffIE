@@ -9,6 +9,7 @@ class LabelMapper(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         self.embs = nn.Embedding(num_classes, embedding_dim=embedding_dim)
+        self.embedding_dim = embedding_dim
 
     def forward(self, labels: torch.LongTensor) -> torch.FloatTensor:
         embeddings = self.embs(labels)
