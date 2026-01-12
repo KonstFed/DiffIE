@@ -54,7 +54,7 @@ class SpanLSOIEDataset(Dataset):
         self.split = split
         self.tokenizer = BertTokenizerFast.from_pretrained(tokenizer_name, use_fast=True)
         
-        dataset = load_dataset("wardenga/lsoie")[split]
+        dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)[split]
         dataset = pd.DataFrame(dataset)
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
         self.dataset = dataset.sort_values(by="sentence")

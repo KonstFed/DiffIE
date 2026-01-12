@@ -498,7 +498,7 @@ class DiffusionTrainer:
         
         for epoch in range(1, num_epochs + 1):
             # Training
-            # train_metrics = self.train_epoch(train_dataloader, epoch, log_interval)
+            train_metrics = self.train_epoch(train_dataloader, epoch, log_interval)
             train_metrics = {"loss": 0.0}
             
             # Validation loss (computed after every epoch)
