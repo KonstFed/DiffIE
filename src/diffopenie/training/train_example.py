@@ -6,13 +6,13 @@ This script demonstrates how to set up and run training for the diffusion model.
 import torch
 from torch.utils.data import DataLoader
 
-from diffopenie.models.diffusion.denoiser import DiffusionSLDenoiser
-from diffopenie.models.diffusion.scheduler import LinearScheduler
+from diffopenie.diffusion.denoiser import DiffusionSLDenoiser
+from diffopenie.diffusion.scheduler import LinearScheduler
 from diffopenie.models.label_mapper import LabelMapper
 from diffopenie.models.encoder import BERTEncoder
-from diffopenie.dataset import SequenceLSOEIDataset
+from diffopenie.data.dataset import SequenceLSOEIDataset
 from diffopenie.training.trainer import DiffusionTrainer
-from diffopenie.training.collator import DiffusionCollator
+from diffopenie.data.collator import DiffusionCollator
 
 
 def main():

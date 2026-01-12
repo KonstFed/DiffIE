@@ -19,6 +19,7 @@ dependencies = [
     "plotly>=6.4.0",
     "nbformat>=4.2.0",
     "pytest>=9.0.2",
+    "scikit-learn>=1.0.0",
 ]
 
 [tool.poetry]
