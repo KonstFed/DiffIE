@@ -5,7 +5,7 @@ import torch.nn as nn
 from typing import Dict, List
 
 from diffopenie.models.diffusion_model import DiffusionSequenceLabeler
-from diffopenie.training.base_trainer import BaseTrainer
+from diffopenie.training.base_trainer import BaseTrainer, BaseTrainerConfig
 
 
 class DiffusionTrainer(BaseTrainer):
@@ -235,3 +235,32 @@ class DiffusionTrainer(BaseTrainer):
     def load_checkpoint_state_dict(self, checkpoint: Dict[str, torch.Tensor]):
         """Load state dictionaries from checkpoint."""
         self.model.load_state_dict(checkpoint, include_encoder=False)
+
+
+class DiffusionTrainerConfig(BaseTrainerConfig):
+    """
+    Configuration model for DiffusionTrainer.
+    Inherits from BaseTrainerConfig and adds factory method for DiffusionTrainer.
+    """
+    
+    def create(self, model: DiffusionSequenceLabeler) -> DiffusionTrainer:
+        """
+        Factory method to create a DiffusionTrainer instance.
+        
+        Args:
+            model: Unified diffusion sequence labeler model
+            
+        Returns:
+            Instance of DiffusionTrainer
+            
+        Example:
+            config = DiffusionTrainerConfig(learning_rate=2e-4, weight_decay=0.01)
+            trainer = config.create_trainer(model=my_model)
+        """
+        return DiffusionTrainer(
+            model=model,
+            device=self.device,
+            learning_rate=self.learning_rate,
+            weight_decay=self.weight_decay,
+            max_grad_norm=self.max_grad_norm,
+        )

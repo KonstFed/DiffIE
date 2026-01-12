@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
+from pydantic import BaseModel
 
 
 class BERTEncoder(nn.Module):
@@ -91,3 +92,30 @@ class BERTEncoder(nn.Module):
             token_embeddings = token_embeddings[:, 1:-1, :]  # [B, L, bert_dim]
         
         return token_embeddings
+
+
+class BERTEncoderConfig(BaseModel):
+    """
+    Configuration model for BERTEncoder.
+    Acts as a factory for creating BERTEncoder instances.
+    """
+    model_name: str = "bert-base-uncased"
+    freeze: bool = True
+    add_special_tokens: bool = True
+    
+    def create(self) -> BERTEncoder:
+        """
+        Factory method to create a BERTEncoder instance.
+        
+        Returns:
+            Instance of BERTEncoder
+            
+        Example:
+            config = BERTEncoderConfig(model_name="bert-base-uncased", freeze=True)
+            encoder = config.create()
+        """
+        return BERTEncoder(
+            model_name=self.model_name,
+            freeze=self.freeze,
+            add_special_tokens=self.add_special_tokens,
+        )

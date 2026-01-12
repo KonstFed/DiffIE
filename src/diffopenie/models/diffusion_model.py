@@ -3,11 +3,12 @@
 import torch
 import torch.nn as nn
 from typing import Dict
+from pydantic import BaseModel
 
-from diffopenie.diffusion.denoiser import DiffusionSLDenoiser
-from diffopenie.diffusion.scheduler import LinearScheduler
-from diffopenie.models.label_mapper import LabelMapper
-from diffopenie.models.encoder import BERTEncoder
+from diffopenie.diffusion.denoiser import DiffusionSLDenoiser, DiffusionSLDenoiserConfig
+from diffopenie.diffusion.scheduler import LinearScheduler, LinearSchedulerConfig
+from diffopenie.models.label_mapper import LabelMapper, LabelMapperConfig
+from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
 
 
 class DiffusionSequenceLabeler(nn.Module):
@@ -161,3 +162,50 @@ class DiffusionSequenceLabeler(nn.Module):
         self.label_mapper.load_state_dict(checkpoint["label_mapper_state_dict"])
         if include_encoder and "encoder_state_dict" in checkpoint:
             self.encoder.load_state_dict(checkpoint["encoder_state_dict"])
+
+
+class DiffusionSequenceLabelerConfig(BaseModel):
+    """
+    Configuration model for DiffusionSequenceLabeler.
+    Acts as a factory for creating DiffusionSequenceLabeler instances.
+    
+    This config composes all component configs (encoder, label_mapper, scheduler, denoiser)
+    and creates the unified diffusion model when create() is called.
+    """
+    encoder: BERTEncoderConfig
+    label_mapper: LabelMapperConfig
+    scheduler: LinearSchedulerConfig
+    denoiser: DiffusionSLDenoiserConfig
+
+    def create(self) -> DiffusionSequenceLabeler:
+        """
+        Factory method to create a DiffusionSequenceLabeler instance.
+        
+        Creates all component models from their respective configs and assembles
+        them into the unified diffusion sequence labeler.
+        
+        Returns:
+            Instance of DiffusionSequenceLabeler with all components initialized
+            
+        Example:
+            config = DiffusionSequenceLabelerConfig(
+                encoder=BERTEncoderConfig(model_name="bert-base-uncased"),
+                label_mapper=LabelMapperConfig(num_classes=4, embedding_dim=256),
+                scheduler=LinearSchedulerConfig(num_steps=1000),
+                denoiser=DiffusionSLDenoiserConfig(x_dim=256, bert_dim=768)
+            )
+            model = config.create()
+        """
+        # Create all component instances from their configs
+        encoder_instance = self.encoder.create()
+        label_mapper_instance = self.label_mapper.create()
+        scheduler_instance = self.scheduler.create()
+        denoiser_instance = self.denoiser.create()
+        
+        # Assemble the unified model
+        return DiffusionSequenceLabeler(
+            denoiser=denoiser_instance,
+            scheduler=scheduler_instance,
+            label_mapper=label_mapper_instance,
+            encoder=encoder_instance,
+        )

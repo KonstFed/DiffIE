@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from pydantic import BaseModel
 
 
 class LabelMapper(nn.Module):
@@ -39,15 +40,27 @@ class LabelMapper(nn.Module):
         return labels
 
 
-if __name__ == "__main__":
-    # simple test
+class LabelMapperConfig(BaseModel):
+    """
+    Configuration model for LabelMapper.
+    Acts as a factory for creating LabelMapper instances.
+    """
+    num_classes: int = 4
+    embedding_dim: int = 256
+    
+    def create(self) -> LabelMapper:
+        """
+        Factory method to create a LabelMapper instance.
+        
+        Returns:
+            Instance of LabelMapper
+            
+        Example:
+            config = LabelMapperConfig(num_classes=4, embedding_dim=256)
+            label_mapper = config.create()
+        """
+        return LabelMapper(
+            num_classes=self.num_classes,
+            embedding_dim=self.embedding_dim,
+        )
 
-    num_classes = 7
-    hidden_size = 768
-    label_mapper = LabelMapper(num_classes, hidden_size)
-    labels = torch.randint(0, num_classes, (10,))
-    embeddings = label_mapper(labels)
-    embeddings = embeddings * 1000
-    print(embeddings.shape)
-    print("labels:", labels)
-    print("labels after reverse:", label_mapper.reverse(embeddings))

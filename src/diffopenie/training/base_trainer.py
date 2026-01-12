@@ -3,10 +3,11 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
+from pydantic import BaseModel, model_validator
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
@@ -487,3 +488,21 @@ class BaseTrainer(ABC):
         if self.optimizer is not None and "optimizer_state_dict" in checkpoint and checkpoint["optimizer_state_dict"] is not None:
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         print(f"Checkpoint loaded from {path}")
+
+
+class BaseTrainerConfig(BaseModel):
+    """
+    Configuration model for BaseTrainer.
+    Acts as a factory for creating BaseTrainer instances.
+    """
+    device: Optional[str] = None  # None = auto-detect (cuda if available, else cpu)
+    learning_rate: float = 1e-4
+    weight_decay: float = 0.01
+    max_grad_norm: float = 1.0
+    
+    @model_validator(mode='after')
+    def _auto_detect_device(self):
+        """Auto-detect device if not specified."""
+        if self.device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        return self

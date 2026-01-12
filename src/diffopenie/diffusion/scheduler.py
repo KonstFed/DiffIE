@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from pydantic import BaseModel
 
 
 class LinearScheduler(nn.Module):
@@ -141,3 +142,34 @@ class LinearScheduler(nn.Module):
             x_t = self.p_sample(denoiser, x_t, t, condition)
         
         return x_t
+
+
+class LinearSchedulerConfig(BaseModel):
+    """
+    Configuration model for LinearScheduler.
+    Acts as a factory for creating LinearScheduler instances.
+    """
+    num_steps: int  # Number of diffusion steps
+    beta_start: float = 0.0001  # Starting beta value
+    beta_end: float = 0.02  # Ending beta value
+    
+    def create(self) -> LinearScheduler:
+        """
+        Factory method to create a LinearScheduler instance.
+        
+        Returns:
+            Instance of LinearScheduler
+            
+        Example:
+            config = LinearSchedulerConfig(
+                num_steps=1000,
+                beta_start=0.0001,
+                beta_end=0.02
+            )
+            scheduler = config.create()
+        """
+        return LinearScheduler(
+            num_steps=self.num_steps,
+            beta_start=self.beta_start,
+            beta_end=self.beta_end,
+        )

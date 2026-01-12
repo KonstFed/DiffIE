@@ -20,6 +20,7 @@ dependencies = [
     "nbformat>=4.2.0",
     "pytest>=9.0.2",
     "scikit-learn>=1.0.0",
+    "pydantic>=2.12.5",
 ]
 
 [tool.poetry]

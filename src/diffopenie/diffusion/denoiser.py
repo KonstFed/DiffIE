@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from pydantic import BaseModel
 
 
 class AdaLayerNorm(nn.Module):
@@ -182,3 +183,42 @@ class DiffusionSLDenoiser(nn.Module):
         x0_pred = self.post_mlp(h)                        # [B, L, x_dim]
 
         return x0_pred
+
+
+class DiffusionSLDenoiserConfig(BaseModel):
+    """
+    Configuration model for DiffusionSLDenoiser.
+    Acts as a factory for creating DiffusionSLDenoiser instances.
+    """
+    x_dim: int  # Dimension of x_t / x0 (label embeddings)
+    bert_dim: int  # Dimension of BERT token embeddings
+    num_steps: int = 1000
+    d_model: int = 256
+    n_layers: int = 4
+    n_heads: int = 8
+    d_ff: int = 1024
+    
+    def create(self) -> DiffusionSLDenoiser:
+        """
+        Factory method to create a DiffusionSLDenoiser instance.
+        
+        Returns:
+            Instance of DiffusionSLDenoiser
+            
+        Example:
+            config = DiffusionSLDenoiserConfig(
+                x_dim=256,
+                bert_dim=768,
+                n_layers=4
+            )
+            denoiser = config.create()
+        """
+        return DiffusionSLDenoiser(
+            x_dim=self.x_dim,
+            bert_dim=self.bert_dim,
+            num_steps=self.num_steps,
+            d_model=self.d_model,
+            n_layers=self.n_layers,
+            n_heads=self.n_heads,
+            d_ff=self.d_ff,
+        )
