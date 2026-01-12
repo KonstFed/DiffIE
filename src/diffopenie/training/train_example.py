@@ -10,6 +10,7 @@ from diffopenie.diffusion.denoiser import DiffusionSLDenoiser
 from diffopenie.diffusion.scheduler import LinearScheduler
 from diffopenie.models.label_mapper import LabelMapper
 from diffopenie.models.encoder import BERTEncoder
+from diffopenie.models.diffusion_model import DiffusionSequenceLabeler
 from diffopenie.data.dataset import SequenceLSOEIDataset
 from diffopenie.training.trainer import DiffusionTrainer
 from diffopenie.data.collator import DiffusionCollator
@@ -59,12 +60,17 @@ def main():
         d_ff=1024,
     )
     
-    # Create trainer
-    trainer = DiffusionTrainer(
+    # Create unified model
+    model = DiffusionSequenceLabeler(
         denoiser=denoiser,
         scheduler=scheduler,
         label_mapper=label_mapper,
         encoder=encoder,
+    )
+    
+    # Create trainer
+    trainer = DiffusionTrainer(
+        model=model,
         device=device,
         learning_rate=learning_rate,
     )

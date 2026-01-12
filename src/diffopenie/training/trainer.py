@@ -2,13 +2,9 @@
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from typing import Dict, Optional, List
+from typing import Dict, List
 
-from diffopenie.diffusion.denoiser import DiffusionSLDenoiser
-from diffopenie.diffusion.scheduler import LinearScheduler
-from diffopenie.models.label_mapper import LabelMapper
-from diffopenie.models.encoder import BERTEncoder
+from diffopenie.models.diffusion_model import DiffusionSequenceLabeler
 from diffopenie.training.base_trainer import BaseTrainer
 
 
@@ -23,10 +19,7 @@ class DiffusionTrainer(BaseTrainer):
     """
     def __init__(
         self,
-        denoiser: DiffusionSLDenoiser,
-        scheduler: LinearScheduler,
-        label_mapper: LabelMapper,
-        encoder: BERTEncoder,
+        model: DiffusionSequenceLabeler,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
@@ -34,20 +27,14 @@ class DiffusionTrainer(BaseTrainer):
     ):
         """
         Args:
-            denoiser: Diffusion denoiser model
-            scheduler: Diffusion scheduler (handles noise schedule)
-            label_mapper: Maps label indices to embeddings
-            encoder: BERT encoder for token embeddings
+            model: Unified diffusion sequence labeler model
             device: Training device
             learning_rate: Learning rate for optimizer
             weight_decay: Weight decay for optimizer
             max_grad_norm: Maximum gradient norm for clipping
         """
-        # Move models to device
-        self.denoiser = denoiser.to(device)
-        self.scheduler = scheduler.to(device)  # Scheduler is now nn.Module, so .to(device) moves all buffers
-        self.label_mapper = label_mapper.to(device)
-        self.encoder = encoder.to(device)
+        # Move model to device
+        self.model = model.to(device)
         
         # Initialize base trainer (sets up optimizer)
         super().__init__(
@@ -62,11 +49,11 @@ class DiffusionTrainer(BaseTrainer):
     
     def get_trainable_models(self) -> List[nn.Module]:
         """Return list of models that should be optimized."""
-        return [self.denoiser]
+        return [self.model.denoiser]
     
     def get_eval_models(self) -> List[nn.Module]:
         """Return list of models that should be set to eval mode during validation."""
-        return [self.scheduler, self.denoiser, self.encoder]
+        return [self.model.scheduler, self.model.denoiser, self.model.encoder]
     
     def train_step(
         self,
@@ -92,15 +79,15 @@ class DiffusionTrainer(BaseTrainer):
         B, L = token_ids.shape
         
         # Get BERT token embeddings
-        token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
+        token_embeddings = self.model.encode_tokens(token_ids, attention_mask)  # [B, L, bert_dim]
         
         # Convert label indices to embeddings (x_0)
-        x_0 = self.label_mapper(label_indices)  # [B, L, x_dim]
+        x_0 = self.model.labels_to_embeddings(label_indices)  # [B, L, x_dim]
         
         # Sample random timesteps
         t = torch.randint(
             0,
-            self.scheduler.num_steps,
+            self.model.scheduler.num_steps,
             size=(B,),
             device=self.device,
             dtype=torch.long,
@@ -110,10 +97,10 @@ class DiffusionTrainer(BaseTrainer):
         noise = torch.randn_like(x_0)  # [B, L, x_dim]
         
         # Forward diffusion: add noise to x_0
-        x_t = self.scheduler.q_sample(x_0, t, noise)  # [B, L, x_dim]
+        x_t = self.model.scheduler.q_sample(x_0, t, noise)  # [B, L, x_dim]
         
         # Predict x_0 from x_t
-        x0_pred = self.denoiser(
+        x0_pred = self.model.denoiser(
             x_t=x_t,
             t=t,
             token_embeddings=token_embeddings,
@@ -130,7 +117,7 @@ class DiffusionTrainer(BaseTrainer):
         loss.backward()
         
         # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(self.denoiser.parameters(), max_norm=self.max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.model.denoiser.parameters(), max_norm=self.max_grad_norm)
         
         self.optimizer.step()
         
@@ -167,21 +154,10 @@ class DiffusionTrainer(BaseTrainer):
             attention_mask = batch["attention_mask"].to(self.device)  # [B, L]
             label_indices = batch["label_indices"].to(self.device)  # [B, L]
             
-            # Get BERT token embeddings
-            token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
-            
             # TODO: idea: make fixed noise for validation
 
-            # Perform step-by-step inference (same as inference)
-            noise_shape = (token_ids.shape[0], token_ids.shape[1], self.label_mapper.embedding_dim)
-            x0_pred = self.scheduler.inference(
-                denoiser=self.denoiser,
-                shape=noise_shape,
-                condition=token_embeddings,
-            )  # [B, L, x_dim]
-            
-            # Convert predictions back to label indices
-            pred_indices = self.label_mapper.reverse(x0_pred)  # [B, L]
+            # Perform inference using the model's predict method
+            pred_indices = self.model.predict(token_ids, attention_mask)  # [B, L]
             
             return {
                 "predictions": pred_indices,
@@ -215,15 +191,15 @@ class DiffusionTrainer(BaseTrainer):
             B, L = token_ids.shape
             
             # Get BERT token embeddings
-            token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
+            token_embeddings = self.model.encode_tokens(token_ids, attention_mask)  # [B, L, bert_dim]
             
             # Convert label indices to embeddings (x_0)
-            x_0 = self.label_mapper(label_indices)  # [B, L, x_dim]
+            x_0 = self.model.labels_to_embeddings(label_indices)  # [B, L, x_dim]
             
             # Sample random timesteps
             t = torch.randint(
                 0,
-                self.scheduler.num_steps,
+                self.model.scheduler.num_steps,
                 size=(B,),
                 device=self.device,
                 dtype=torch.long,
@@ -233,10 +209,10 @@ class DiffusionTrainer(BaseTrainer):
             noise = torch.randn_like(x_0)  # [B, L, x_dim]
             
             # Forward diffusion: add noise to x_0
-            x_t = self.scheduler.q_sample(x_0, t, noise)  # [B, L, x_dim]
+            x_t = self.model.scheduler.q_sample(x_0, t, noise)  # [B, L, x_dim]
             
             # Predict x_0 from x_t
-            x0_pred = self.denoiser(
+            x0_pred = self.model.denoiser(
                 x_t=x_t,
                 t=t,
                 token_embeddings=token_embeddings,
@@ -254,12 +230,8 @@ class DiffusionTrainer(BaseTrainer):
     
     def get_checkpoint_state_dict(self) -> Dict[str, torch.Tensor]:
         """Get state dictionaries for checkpointing."""
-        return {
-            "denoiser_state_dict": self.denoiser.state_dict(),
-            "label_mapper_state_dict": self.label_mapper.state_dict(),
-        }
-    
+        return self.model.state_dict(include_encoder=False)
+
     def load_checkpoint_state_dict(self, checkpoint: Dict[str, torch.Tensor]):
         """Load state dictionaries from checkpoint."""
-        self.denoiser.load_state_dict(checkpoint["denoiser_state_dict"])
-        self.label_mapper.load_state_dict(checkpoint["label_mapper_state_dict"])
+        self.model.load_state_dict(checkpoint, include_encoder=False)
