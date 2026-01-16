@@ -35,3 +35,17 @@ build-backend = "poetry.core.masonry.api"
 dev = [
     "ruff>=0.14.5",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F"]
+ignore = [
+  "E203",  # конфликтует с форматтерами
+  "E266",  # комментарии
+]
+
+[tool.ruff.format]
+quote-style = "double"

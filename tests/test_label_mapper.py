@@ -2,6 +2,7 @@ import torch
 
 from diffopenie.models.label_mapper import LabelMapper
 
+
 def test_label_mapper():
     """simple test."""
     num_classes = 7

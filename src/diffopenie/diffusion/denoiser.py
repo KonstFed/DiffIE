@@ -9,6 +9,7 @@ class AdaLayerNorm(nn.Module):
     x:  [B, L, d_model]
     c:  [B, L, d_cond] (usually d_cond == d_model)
     """
+
     def __init__(self, d_model: int, d_cond: int):
         super().__init__()
         self.ln = nn.LayerNorm(d_model)
@@ -20,11 +21,11 @@ class AdaLayerNorm(nn.Module):
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
         # cond -> gamma, beta
-        h = self.mlp(cond)                        # [B, L, 2*d_model]
-        gamma, beta = h.chunk(2, dim=-1)          # [B, L, d_model] each
+        h = self.mlp(cond)  # [B, L, 2*d_model]
+        gamma, beta = h.chunk(2, dim=-1)  # [B, L, d_model] each
 
-        x_norm = self.ln(x)                       # [B, L, d_model]
-        return gamma * x_norm + beta              # [B, L, d_model]
+        x_norm = self.ln(x)  # [B, L, d_model]
+        return gamma * x_norm + beta  # [B, L, d_model]
 
 
 class DiffusionSLTransformerBlock(nn.Module):
@@ -33,6 +34,7 @@ class DiffusionSLTransformerBlock(nn.Module):
     - self-attention on x
     - AdaLayerNorm conditioned on c_t
     """
+
     def __init__(self, d_model: int, n_heads: int, d_ff: int, d_cond: int):
         super().__init__()
         self.self_attn = nn.MultiheadAttention(
@@ -56,14 +58,16 @@ class DiffusionSLTransformerBlock(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,       # [B, L, d_model]
-        cond: torch.Tensor,    # [B, L, d_cond]
+        x: torch.Tensor,  # [B, L, d_model]
+        cond: torch.Tensor,  # [B, L, d_cond]
         key_padding_mask: torch.Tensor | None = None,  # [B, L] True = pad
     ) -> torch.Tensor:
         # Self-attention branch
         h = self.ada_ln1(x, cond)
         attn_out, _ = self.self_attn(
-            h, h, h,
+            h,
+            h,
+            h,
             key_padding_mask=key_padding_mask,
             need_weights=False,
         )
@@ -90,10 +94,11 @@ class DiffusionSLDenoiser(nn.Module):
     Output:
         x0_pred:         [B, L, x_dim]          predicted clean labels
     """
+
     def __init__(
         self,
-        x_dim: int,           # dimension of x_t / x0
-        bert_dim: int,        # dimension of BERT token embeddings
+        x_dim: int,  # dimension of x_t / x0
+        bert_dim: int,  # dimension of BERT token embeddings
         num_steps: int = 1000,
         d_model: int = 256,
         n_layers: int = 4,
@@ -118,15 +123,17 @@ class DiffusionSLDenoiser(nn.Module):
         )
 
         # --- Generator: N Transformer blocks with AdaLayerNorm conditioning ---
-        self.blocks = nn.ModuleList([
-            DiffusionSLTransformerBlock(
-                d_model=d_model,
-                n_heads=n_heads,
-                d_ff=d_ff,
-                d_cond=d_model,
-            )
-            for _ in range(n_layers)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                DiffusionSLTransformerBlock(
+                    d_model=d_model,
+                    n_heads=n_heads,
+                    d_ff=d_ff,
+                    d_cond=d_model,
+                )
+                for _ in range(n_layers)
+            ]
+        )
 
         # --- Post Layer: AdaLN + MLP back to x_dim ---
         self.post_ada_ln = AdaLayerNorm(d_model, d_model)
@@ -139,38 +146,40 @@ class DiffusionSLDenoiser(nn.Module):
     def build_condition(
         self,
         token_embeddings: torch.Tensor,  # [B, L, bert_dim]
-        t: torch.Tensor,                 # [B]
+        t: torch.Tensor,  # [B]
     ) -> torch.Tensor:
         """
         c_t = Linear(Concat(H, Embeds(t)))
         """
         B, L, _ = token_embeddings.shape
 
-        t_emb = self.time_emb(t)               # [B, d_model]
+        t_emb = self.time_emb(t)  # [B, d_model]
         t_emb = t_emb.unsqueeze(1).expand(B, L, -1)  # [B, L, d_model]
 
-        cond_input = torch.cat([token_embeddings, t_emb], dim=-1)  # [B, L, bert_dim + d_model]
-        c_t = self.cond_linear(cond_input)                         # [B, L, d_model]
+        cond_input = torch.cat(
+            [token_embeddings, t_emb], dim=-1
+        )  # [B, L, bert_dim + d_model]
+        c_t = self.cond_linear(cond_input)  # [B, L, d_model]
         return c_t
 
     def forward(
         self,
-        x_t: torch.Tensor,             # [B, L, x_dim]
-        t: torch.Tensor,               # [B]
-        token_embeddings: torch.Tensor,# [B, L, bert_dim]
+        x_t: torch.Tensor,  # [B, L, x_dim]
+        t: torch.Tensor,  # [B]
+        token_embeddings: torch.Tensor,  # [B, L, bert_dim]
         attn_mask: torch.Tensor | None = None,  # [B, L] True=keep, False=pad
     ) -> torch.Tensor:
         B, L, _ = x_t.shape
 
         # Build conditional signal c_t
-        c_t = self.build_condition(token_embeddings, t)   # [B, L, d_model]
+        c_t = self.build_condition(token_embeddings, t)  # [B, L, d_model]
 
         # Pre layer: noisy bits -> model space
-        h = self.pre(x_t)                                 # [B, L, d_model]
+        h = self.pre(x_t)  # [B, L, d_model]
 
         # Attention mask: MultiheadAttention uses key_padding_mask with True=pad
         if attn_mask is not None:
-            key_padding_mask = ~attn_mask.bool()          # [B, L], True=pad
+            key_padding_mask = ~attn_mask.bool()  # [B, L], True=pad
         else:
             key_padding_mask = None
 
@@ -179,8 +188,8 @@ class DiffusionSLDenoiser(nn.Module):
             h = blk(h, c_t, key_padding_mask=key_padding_mask)
 
         # Post layer: AdaLN + MLP back to x_dim
-        h = self.post_ada_ln(h, c_t)                      # [B, L, d_model]
-        x0_pred = self.post_mlp(h)                        # [B, L, x_dim]
+        h = self.post_ada_ln(h, c_t)  # [B, L, d_model]
+        x0_pred = self.post_mlp(h)  # [B, L, x_dim]
 
         return x0_pred
 
@@ -190,6 +199,7 @@ class DiffusionSLDenoiserConfig(BaseModel):
     Configuration model for DiffusionSLDenoiser.
     Acts as a factory for creating DiffusionSLDenoiser instances.
     """
+
     x_dim: int  # Dimension of x_t / x0 (label embeddings)
     bert_dim: int  # Dimension of BERT token embeddings
     num_steps: int = 1000
@@ -197,14 +207,14 @@ class DiffusionSLDenoiserConfig(BaseModel):
     n_layers: int = 4
     n_heads: int = 8
     d_ff: int = 1024
-    
+
     def create(self) -> DiffusionSLDenoiser:
         """
         Factory method to create a DiffusionSLDenoiser instance.
-        
+
         Returns:
             Instance of DiffusionSLDenoiser
-            
+
         Example:
             config = DiffusionSLDenoiserConfig(
                 x_dim=256,

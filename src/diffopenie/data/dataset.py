@@ -29,31 +29,40 @@ def get_left_right_border(label: list[str], tag_prefix: str) -> tuple[int, int]:
         return None, None
 
 
-def labels_to_indices(label: list[str]) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+def labels_to_indices(
+    label: list[str],
+) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
     """Convert labels to word-level indices for A0 (subject), A1 (object), and P (predicate)."""
     return (
         get_left_right_border(label, "A0"),
         get_left_right_border(label, "A1"),
-        get_left_right_border(label, "P")
+        get_left_right_border(label, "P"),
     )
 
 
-def word_to_token_indices(word_ids: list[int | None], word_start: int, word_end: int) -> tuple[int | None, int | None]:
+def word_to_token_indices(
+    word_ids: list[int | None], word_start: int, word_end: int
+) -> tuple[int | None, int | None]:
     """Convert word indices to token indices."""
     if word_start is None or word_end is None:
         return None, None
-    
+
     token_start = next((i for i, wid in enumerate(word_ids) if wid == word_start), None)
-    token_end = next((i for i in range(len(word_ids)-1, -1, -1) if word_ids[i] == word_end), None)
+    token_end = next(
+        (i for i in range(len(word_ids) - 1, -1, -1) if word_ids[i] == word_end), None
+    )
     return token_start, token_end
 
 
 class SpanLSOIEDataset(Dataset):
     """Dataset for the LSOIE dataset."""
+
     def __init__(self, split: str = "train", tokenizer_name: str = "bert-base-uncased"):
         self.split = split
-        self.tokenizer = BertTokenizerFast.from_pretrained(tokenizer_name, use_fast=True)
-        
+        self.tokenizer = BertTokenizerFast.from_pretrained(
+            tokenizer_name, use_fast=True
+        )
+
         dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)[split]
         dataset = pd.DataFrame(dataset)
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
@@ -66,7 +75,7 @@ class SpanLSOIEDataset(Dataset):
         """get tokens and triple for the given index
 
         Args:
-            idx (int) 
+            idx (int)
 
         Returns:
             dict: tokens, token_ids, spans
@@ -74,27 +83,25 @@ class SpanLSOIEDataset(Dataset):
         row = self.dataset.iloc[idx]
         words = row["words"]
         labels = row["label"]
-        
+
         # Get word-level indices for A0, A1, P
         (s_l, s_r), (o_l, o_r), (p_l, p_r) = labels_to_indices(labels)
-        
+
         # Tokenize words
         encoding = self.tokenizer(
-            words,
-            is_split_into_words=True,
-            add_special_tokens=False
+            words, is_split_into_words=True, add_special_tokens=False
         )
-        
+
         tokens = self.tokenizer.convert_ids_to_tokens(encoding["input_ids"])
         word_ids = encoding.word_ids()
-        
+
         # Convert word indices to token indices
         token_triplets = (
             word_to_token_indices(word_ids, s_l, s_r),
             word_to_token_indices(word_ids, o_l, o_r),
-            word_to_token_indices(word_ids, p_l, p_r)
+            word_to_token_indices(word_ids, p_l, p_r),
         )
-        
+
         return {
             "tokens": tokens,
             "token_ids": encoding["input_ids"],
@@ -110,7 +117,7 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
         """get tokens and triple for the given index
 
         Args:
-            idx (int) 
+            idx (int)
 
         Returns:
             dict: tokens, token_ids, spans
@@ -120,11 +127,9 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
         labels = row["label"]
 
         encoding = self.tokenizer(
-            words,
-            is_split_into_words=True,
-            add_special_tokens=False
+            words, is_split_into_words=True, add_special_tokens=False
         )
-        
+
         tokens = self.tokenizer.convert_ids_to_tokens(encoding["input_ids"])
         word_ids = encoding.word_ids()
 
@@ -132,9 +137,15 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
         object_labels = [i for i, t in enumerate(labels) if t.startswith("A1")]
         predicate_labels = [i for i, t in enumerate(labels) if t.startswith("P")]
 
-        subject_indices = [i for i, word_id in enumerate(word_ids) if word_id in subject_labels]
-        object_indices = [i for i, word_id in enumerate(word_ids) if word_id in object_labels]
-        predicate_indices = [i for i, word_id in enumerate(word_ids) if word_id in predicate_labels]
+        subject_indices = [
+            i for i, word_id in enumerate(word_ids) if word_id in subject_labels
+        ]
+        object_indices = [
+            i for i, word_id in enumerate(word_ids) if word_id in object_labels
+        ]
+        predicate_indices = [
+            i for i, word_id in enumerate(word_ids) if word_id in predicate_labels
+        ]
 
         label = torch.zeros(len(tokens), dtype=torch.long)
         label[subject_indices] = 1
@@ -155,6 +166,7 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
             "token_ids": encoding["input_ids"],
             "labels": label,
         }
+
 
 if __name__ == "__main__":
     ds = SequenceLSOEIDataset(split="train")

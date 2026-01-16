@@ -14,6 +14,7 @@ from diffopenie.data.collator import DiffusionCollator
 
 class DataConfig(BaseModel):
     """Configuration for data loading."""
+
     dataset_name: str = "SequenceLSOEIDataset"  # Dataset class name
     tokenizer_name: str = "bert-base-uncased"
     batch_size: int = 32
@@ -25,16 +26,17 @@ class DataConfig(BaseModel):
 class TrainingConfig(BaseModel):
     """
     Complete training configuration.
-    
+
     Contains:
     - trainer_config: Configuration for the trainer (optimizer, device, etc.)
     - model_config: Configuration for the diffusion model (encoder, denoiser, scheduler, etc.)
     - data_config: Configuration for data loading (dataset, dataloader settings)
     """
+
     trainer: DiffusionTrainerConfig
     model: DiffusionSequenceLabelerConfig
     data: DataConfig
-    
+
     # Training hyperparameters
     num_epochs: int = 10
     log_interval: int = 100
@@ -47,10 +49,10 @@ class TrainingConfig(BaseModel):
 def create_training_components(config: TrainingConfig):
     """
     Create all components needed for training from configuration.
-    
+
     Args:
         config: TrainingConfig instance
-        
+
     Returns:
         Dictionary containing:
             - model: DiffusionSequenceLabeler instance
@@ -60,27 +62,27 @@ def create_training_components(config: TrainingConfig):
     """
     # Create model
     model = config.model.create()
-    
+
     # Create trainer
     trainer = config.trainer.create(model=model)
-    
+
     # Create datasets
     train_dataset = SequenceLSOEIDataset(
         split="train",
         tokenizer_name=config.data.tokenizer_name,
     )
-    
+
     val_dataset = SequenceLSOEIDataset(
         split="validation",
         tokenizer_name=config.data.tokenizer_name,
     )
-    
+
     # Create collator
     collator = DiffusionCollator(
         pad_token_id=config.data.pad_token_id,
         pad_label_idx=config.data.pad_label_idx,
     )
-    
+
     # Create dataloaders
     train_dataloader = DataLoader(
         train_dataset,
@@ -89,7 +91,7 @@ def create_training_components(config: TrainingConfig):
         num_workers=config.data.num_workers,
         collate_fn=collator,
     )
-    
+
     val_dataloader = DataLoader(
         val_dataset,
         batch_size=config.data.batch_size,
@@ -97,7 +99,7 @@ def create_training_components(config: TrainingConfig):
         num_workers=config.data.num_workers,
         collate_fn=collator,
     )
-    
+
     return {
         "model": model,
         "trainer": trainer,
@@ -114,29 +116,29 @@ def main():
     parser.add_argument(
         "config_path",
         type=str,
-        help="Path to YAML configuration file containing TrainingConfig"
+        help="Path to YAML configuration file containing TrainingConfig",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Load configuration from YAML file
     config = load_config(TrainingConfig, args.config_path)
-    
+
     print(f"Loaded configuration from {args.config_path}")
     print(f"Training for {config.num_epochs} epochs")
     print(f"Batch size: {config.data.batch_size}")
     print(f"Device: {config.trainer.device}")
-    
+
     # Create training components
     components = create_training_components(config)
-    
+
     print("Training components created successfully!")
     print(f"Model: {components['model']}")
     print(f"Trainer: {components['trainer']}")
     print(f"Train batches: {len(components['train_dataloader'])}")
     print(f"Val batches: {len(components['val_dataloader'])}")
     print("-" * 80)
-    
+
     # Start training
     components["trainer"].train(
         train_dataloader=components["train_dataloader"],
@@ -148,11 +150,10 @@ def main():
         num_classes=config.num_classes,
         val_full_interval=config.val_full_interval,
     )
-    
+
     print("-" * 80)
     print("Training completed!")
 
 
 if __name__ == "__main__":
     main()
-

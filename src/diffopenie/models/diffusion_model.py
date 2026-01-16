@@ -14,16 +14,16 @@ from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
 class DiffusionSequenceLabeler(nn.Module):
     """
     Unified diffusion model for sequence labeling.
-    
+
     Encapsulates all components needed for diffusion-based sequence labeling:
     - Encoder: BERT encoder for token embeddings
     - LabelMapper: Maps label indices to embeddings and vice versa
     - Scheduler: Diffusion noise scheduler
     - Denoiser: Denoising model
-    
+
     This class provides a clean interface for both training and inference.
     """
-    
+
     def __init__(
         self,
         denoiser: DiffusionSLDenoiser,
@@ -43,7 +43,7 @@ class DiffusionSequenceLabeler(nn.Module):
         self.scheduler = scheduler
         self.label_mapper = label_mapper
         self.encoder = encoder
-    
+
     def to(self, device):
         """Move all components to the specified device."""
         super().to(device)
@@ -52,7 +52,7 @@ class DiffusionSequenceLabeler(nn.Module):
         self.label_mapper = self.label_mapper.to(device)
         self.encoder = self.encoder.to(device)
         return self
-    
+
     @torch.no_grad()
     def predict(
         self,
@@ -61,30 +61,34 @@ class DiffusionSequenceLabeler(nn.Module):
     ) -> torch.LongTensor:
         """
         Perform inference to predict label indices.
-        
+
         Args:
             token_ids: Token IDs [B, L]
             attention_mask: Attention mask [B, L]
-        
+
         Returns:
             Predicted label indices [B, L]
         """
         # Get BERT token embeddings
         token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
-        
+
         # Perform step-by-step inference
-        noise_shape = (token_ids.shape[0], token_ids.shape[1], self.label_mapper.embedding_dim)
+        noise_shape = (
+            token_ids.shape[0],
+            token_ids.shape[1],
+            self.label_mapper.embedding_dim,
+        )
         x0_pred = self.scheduler.inference(
             denoiser=self.denoiser,
             shape=noise_shape,
             condition=token_embeddings,
         )  # [B, L, x_dim]
-        
+
         # Convert predictions back to label indices
         pred_indices = self.label_mapper.reverse(x0_pred)  # [B, L]
-        
+
         return pred_indices
-    
+
     def encode_tokens(
         self,
         token_ids: torch.LongTensor,  # [B, L]
@@ -92,53 +96,53 @@ class DiffusionSequenceLabeler(nn.Module):
     ) -> torch.Tensor:
         """
         Encode tokens using the BERT encoder.
-        
+
         Args:
             token_ids: Token IDs [B, L]
             attention_mask: Attention mask [B, L]
-        
+
         Returns:
             Token embeddings [B, L, bert_dim]
         """
         return self.encoder(token_ids, attention_mask)
-    
+
     def labels_to_embeddings(
         self,
         label_indices: torch.LongTensor,  # [B, L]
     ) -> torch.Tensor:
         """
         Convert label indices to embeddings.
-        
+
         Args:
             label_indices: Label indices [B, L]
-        
+
         Returns:
             Label embeddings [B, L, embedding_dim]
         """
         return self.label_mapper(label_indices)
-    
+
     def embeddings_to_labels(
         self,
         embeddings: torch.Tensor,  # [B, L, embedding_dim]
     ) -> torch.LongTensor:
         """
         Convert embeddings back to label indices.
-        
+
         Args:
             embeddings: Label embeddings [B, L, embedding_dim]
-        
+
         Returns:
             Label indices [B, L]
         """
         return self.label_mapper.reverse(embeddings)
-    
+
     def state_dict(self, include_encoder: bool = False):
         """
         Get state dictionary for checkpointing.
-        
+
         Args:
             include_encoder: Whether to include encoder state (usually frozen)
-        
+
         Returns:
             Dictionary with model state dicts
         """
@@ -149,11 +153,13 @@ class DiffusionSequenceLabeler(nn.Module):
         if include_encoder:
             state["encoder_state_dict"] = self.encoder.state_dict()
         return state
-    
-    def load_state_dict(self, checkpoint: Dict[str, torch.Tensor], include_encoder: bool = False):
+
+    def load_state_dict(
+        self, checkpoint: Dict[str, torch.Tensor], include_encoder: bool = False
+    ):
         """
         Load state dictionary from checkpoint.
-        
+
         Args:
             checkpoint: Dictionary with model state dicts
             include_encoder: Whether to load encoder state
@@ -168,10 +174,11 @@ class DiffusionSequenceLabelerConfig(BaseModel):
     """
     Configuration model for DiffusionSequenceLabeler.
     Acts as a factory for creating DiffusionSequenceLabeler instances.
-    
+
     This config composes all component configs (encoder, label_mapper, scheduler, denoiser)
     and creates the unified diffusion model when create() is called.
     """
+
     encoder: BERTEncoderConfig
     label_mapper: LabelMapperConfig
     scheduler: LinearSchedulerConfig
@@ -180,13 +187,13 @@ class DiffusionSequenceLabelerConfig(BaseModel):
     def create(self) -> DiffusionSequenceLabeler:
         """
         Factory method to create a DiffusionSequenceLabeler instance.
-        
+
         Creates all component models from their respective configs and assembles
         them into the unified diffusion sequence labeler.
-        
+
         Returns:
             Instance of DiffusionSequenceLabeler with all components initialized
-            
+
         Example:
             config = DiffusionSequenceLabelerConfig(
                 encoder=BERTEncoderConfig(model_name="bert-base-uncased"),
@@ -201,7 +208,7 @@ class DiffusionSequenceLabelerConfig(BaseModel):
         label_mapper_instance = self.label_mapper.create()
         scheduler_instance = self.scheduler.create()
         denoiser_instance = self.denoiser.create()
-        
+
         # Assemble the unified model
         return DiffusionSequenceLabeler(
             denoiser=denoiser_instance,

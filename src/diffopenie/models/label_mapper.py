@@ -30,8 +30,12 @@ class LabelMapper(nn.Module):
         # get embedding weights: (num_classes, embedding_dim)
         weight = self.embs.weight  # shape: (num_classes, embedding_dim)
         # Normalize embeddings and weights to unit vectors
-        normed_inputs = torch.nn.functional.normalize(embeddings, p=2, dim=-1)  # (..., embedding_dim)
-        normed_weights = torch.nn.functional.normalize(weight, p=2, dim=-1)     # (num_classes, embedding_dim)
+        normed_inputs = torch.nn.functional.normalize(
+            embeddings, p=2, dim=-1
+        )  # (..., embedding_dim)
+        normed_weights = torch.nn.functional.normalize(
+            weight, p=2, dim=-1
+        )  # (num_classes, embedding_dim)
         # Compute cosine similarity: (..., num_classes)
         # Cosine distance = 1 - cosine similarity, so argmax of cosine similarity gives min cosine distance
         sim = torch.matmul(normed_inputs, normed_weights.t())  # (..., num_classes)
@@ -45,16 +49,17 @@ class LabelMapperConfig(BaseModel):
     Configuration model for LabelMapper.
     Acts as a factory for creating LabelMapper instances.
     """
+
     num_classes: int = 4
     embedding_dim: int = 256
-    
+
     def create(self) -> LabelMapper:
         """
         Factory method to create a LabelMapper instance.
-        
+
         Returns:
             Instance of LabelMapper
-            
+
         Example:
             config = LabelMapperConfig(num_classes=4, embedding_dim=256)
             label_mapper = config.create()
@@ -63,4 +68,3 @@ class LabelMapperConfig(BaseModel):
             num_classes=self.num_classes,
             embedding_dim=self.embedding_dim,
         )
-
