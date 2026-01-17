@@ -23,13 +23,13 @@ def main():
     model = load_model(config, args.checkpoint_path)
     sentence = "It was a notable influence on John Buchan and Ken Follett , who described it as `` an open-air adventure thriller about two young men who stumble upon a German armada preparing to invade England . ''"
     words = sentence.split()
-    sub_span, obj_span, pred_span = model.get_triplets(words)
+    sub_span, obj_span, pred_span = model.get_triplets([words, words])[0]
     if sub_span is not None:
-        print(f"Sub: {words[sub_span[0]:sub_span[1]]}")
+        print(f"Sub: {words[sub_span[0]:sub_span[1]+1]}")
     if obj_span is not None:
-        print(f"Obj: {words[obj_span[0]:obj_span[1]]}")
+        print(f"Obj: {words[obj_span[0]:obj_span[1]+1]}")
     if pred_span is not None:
-        print(f"Pred: {words[pred_span[0]:pred_span[1]]}")
+        print(f"Pred: {words[pred_span[0]:pred_span[1]+1]}")
 
 
 if __name__ == "__main__":

@@ -33,10 +33,9 @@ class BERTEncoder(nn.Module):
         self.add_special_tokens = add_special_tokens
 
         # Get tokenizer to access special token IDs
-        if add_special_tokens:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.cls_token_id = self.tokenizer.cls_token_id
-            self.sep_token_id = self.tokenizer.sep_token_id
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.cls_token_id = self.tokenizer.cls_token_id
+        self.sep_token_id = self.tokenizer.sep_token_id
 
         if freeze:
             for param in self.model.parameters():

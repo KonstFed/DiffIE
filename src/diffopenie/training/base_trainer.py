@@ -1,12 +1,12 @@
 """Base trainer class for model-agnostic training infrastructure."""
-
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
+import os
 from typing import Dict, Optional, List
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
 from pydantic import BaseModel, model_validator
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
@@ -492,9 +492,6 @@ class BaseTrainer(ABC):
             else None,
         }
         checkpoint.update(self.get_checkpoint_state_dict())
-
-        import os
-
         os.makedirs(path, exist_ok=True)
         torch.save(checkpoint, f"{path}/checkpoint_epoch_{epoch}.pt")
         print(f"Checkpoint saved to {path}/checkpoint_epoch_{epoch}.pt")

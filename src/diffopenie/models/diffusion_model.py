@@ -90,23 +90,51 @@ class DiffusionSequenceLabeler(nn.Module):
 
         return pred_indices
 
-    def get_triplets(self, words: list[str]) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+    def get_triplets(
+        self,
+        words: list[list[str]]
+    ) -> list[tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]:
         """
-        Get triplets from a sentence.
+        Get triplets from a batch of sentences.
+
+        Args:
+            words: Batch of sentences as list of word lists.
+
+        Returns:
+            List of tuples (sub_span, obj_span, pred_span), one per sentence.
         """
         device = next(self.parameters()).device
-        encoding = self.encoder.tokenizer(words, is_split_into_words=True, add_special_tokens=False)
-        input_ids = torch.tensor([encoding["input_ids"]], dtype=torch.long, device=device)
-        attention_mask = torch.tensor([encoding["attention_mask"]], dtype=torch.long, device=device)
-        pred_indices = self.predict(input_ids, attention_mask).cpu()
-        word_ids = encoding.word_ids()
 
-        # sub - 1; obj - 2; pred - 3
-        sub_span = extract_longest_span((pred_indices == 1)[0], word_ids)
-        obj_span = extract_longest_span((pred_indices == 2)[0], word_ids)
-        pred_span = extract_longest_span((pred_indices == 3)[0], word_ids)
+        # Tokenize all sentences with padding
+        encodings = self.encoder.tokenizer(
+            words,
+            is_split_into_words=True,
+            add_special_tokens=False,
+            padding=True,
+            return_tensors="pt"
+        )
 
-        return sub_span, obj_span, pred_span
+        input_ids = encodings["input_ids"].to(device)
+        attention_mask = encodings["attention_mask"].to(device)
+
+        # Batch prediction
+        pred_indices = self.predict(input_ids, attention_mask).cpu()  # [B, L]
+
+        # Extract triplets for each sentence in the batch
+        results = []
+        for i in range(len(words)):
+            # Get word_ids for this sentence
+            word_ids = encodings.word_ids(batch_index=i)
+
+            # Extract spans for this sentence
+            # sub - 1; obj - 2; pred - 3
+            sub_span = extract_longest_span((pred_indices[i] == 1), word_ids)
+            obj_span = extract_longest_span((pred_indices[i] == 2), word_ids)
+            pred_span = extract_longest_span((pred_indices[i] == 3), word_ids)
+
+            results.append((sub_span, obj_span, pred_span))
+
+        return results
 
     def encode_tokens(
         self,
@@ -194,8 +222,9 @@ class DiffusionSequenceLabelerConfig(BaseModel):
     Configuration model for DiffusionSequenceLabeler.
     Acts as a factory for creating DiffusionSequenceLabeler instances.
 
-    This config composes all component configs (encoder, label_mapper, scheduler, denoiser)
-    and creates the unified diffusion model when create() is called.
+    This config composes all component configs (encoder, label_mapper,
+    scheduler, denoiser) and creates the unified diffusion model when
+    create() is called.
     """
 
     encoder: BERTEncoderConfig
