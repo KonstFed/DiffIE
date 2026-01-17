@@ -33,6 +33,7 @@ def labels_to_indices(
     label: list[str],
 ) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
     """Convert labels to word-level indices for A0 (subject), A1 (object), and P (predicate)."""
+    # TODO: extract_longest_span in future if will be used
     return (
         get_left_right_border(label, "A0"),
         get_left_right_border(label, "A1"),

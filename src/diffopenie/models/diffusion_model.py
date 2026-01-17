@@ -9,6 +9,7 @@ from diffopenie.diffusion.denoiser import DiffusionSLDenoiser, DiffusionSLDenois
 from diffopenie.diffusion.scheduler import LinearScheduler, LinearSchedulerConfig
 from diffopenie.models.label_mapper import LabelMapper, LabelMapperConfig
 from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
+from diffopenie.data.triplet_utils import extract_longest_span
 
 
 class DiffusionSequenceLabeler(nn.Module):
@@ -88,6 +89,24 @@ class DiffusionSequenceLabeler(nn.Module):
         pred_indices = self.label_mapper.reverse(x0_pred)  # [B, L]
 
         return pred_indices
+
+    def get_triplets(self, words: list[str]) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+        """
+        Get triplets from a sentence.
+        """
+        device = next(self.parameters()).device
+        encoding = self.encoder.tokenizer(words, is_split_into_words=True, add_special_tokens=False)
+        input_ids = torch.tensor([encoding["input_ids"]], dtype=torch.long, device=device)
+        attention_mask = torch.tensor([encoding["attention_mask"]], dtype=torch.long, device=device)
+        pred_indices = self.predict(input_ids, attention_mask).cpu()
+        word_ids = encoding.word_ids()
+
+        # sub - 1; obj - 2; pred - 3
+        sub_span = extract_longest_span((pred_indices == 1)[0], word_ids)
+        obj_span = extract_longest_span((pred_indices == 2)[0], word_ids)
+        pred_span = extract_longest_span((pred_indices == 3)[0], word_ids)
+
+        return sub_span, obj_span, pred_span
 
     def encode_tokens(
         self,
