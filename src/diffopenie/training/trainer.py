@@ -46,12 +46,11 @@ class DiffusionTrainer(BaseTrainer):
         )
 
         # Loss function
-        self.criterion = nn.MSELoss(reduction="mean")
+        self.criterion = nn.MSELoss(reduction="none")
 
     def get_trainable_models(self) -> List[nn.Module]:
         """Return list of models that should be optimized."""
-        return [self.model.denoiser, self.model.label_mapper]  # Add label_mapper!
-        # return [self.model.denoiser]
+        return [self.model.denoiser, self.model.label_mapper]
 
     def get_eval_models(self) -> List[nn.Module]:
         """Return list of models that should be set to eval mode during validation."""
@@ -114,15 +113,19 @@ class DiffusionTrainer(BaseTrainer):
         # Compute loss: MSE between predicted and true x_0
         # Only compute loss on non-padding tokens
         mask = attention_mask.unsqueeze(-1).expand_as(x_0)  # [B, L, x_dim]
-        loss = self.criterion(x0_pred * mask, x_0 * mask)
+        loss_per_element = self.criterion(x0_pred, x_0)  # [B, L, x_dim]
+        loss = (loss_per_element * mask).sum() / mask.sum()  # Mean over valid tokens
 
         # Backward pass
         self.optimizer.zero_grad()
         loss.backward()
 
-        # Gradient clipping
+        # Gradient clipping - clip all trainable parameters
+        trainable_params = []
+        for model in self.get_trainable_models():
+            trainable_params.extend(model.parameters())
         torch.nn.utils.clip_grad_norm_(
-            self.model.denoiser.parameters(), max_norm=self.max_grad_norm
+            trainable_params, max_norm=self.max_grad_norm
         )
 
         self.optimizer.step()
@@ -230,7 +233,8 @@ class DiffusionTrainer(BaseTrainer):
             # Compute loss: MSE between predicted and true x_0
             # Only compute loss on non-padding tokens
             mask = attention_mask.unsqueeze(-1).expand_as(x_0)  # [B, L, x_dim]
-            loss = self.criterion(x0_pred * mask, x_0 * mask)
+            loss_per_element = self.criterion(x0_pred, x_0)  # [B, L, x_dim]
+            loss = (loss_per_element * mask).sum() / mask.sum()  # Mean over valid tokens
 
             return {
                 "loss": loss.item(),
