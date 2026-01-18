@@ -1,8 +1,9 @@
 """Training loop for diffusion-based OpenIE model."""
+from typing import Dict, List
 
 import torch
 import torch.nn as nn
-from typing import Dict, List
+from torch.utils.data import DataLoader
 
 from diffopenie.models.diffusion_model import DiffusionSequenceLabeler
 from diffopenie.training.base_trainer import BaseTrainer, BaseTrainerConfig
@@ -238,6 +239,53 @@ class DiffusionTrainer(BaseTrainer):
 
             return {
                 "loss": loss.item(),
+            }
+
+    def train_epoch(self, dataloader: DataLoader, epoch: int, log_interval: int = 100) -> Dict[str, float]:
+        """
+        Train for one epoch.
+
+        Args:
+            dataloader: DataLoader for training data
+            epoch: Current epoch number
+            log_interval: Logging interval
+        """
+        metrics = super().train_epoch(dataloader, epoch, log_interval)
+        metrics.update(self.check_embedding_separation())
+        return metrics
+
+    def check_embedding_separation(self) -> Dict[str, float]:
+        """
+        Check if label embeddings are collapsing.
+
+        Returns:
+            Dictionary with embedding separation metrics:
+            - min_embedding_similarity: Minimum cosine similarity between any two embeddings
+            - mean_embedding_similarity: Mean cosine similarity between all pairs
+            - max_embedding_similarity: Maximum cosine similarity (excluding self-similarity)
+        """
+        with torch.no_grad():
+            emb_weights = self.model.label_mapper.embs.weight  # [num_classes, embedding_dim]
+            num_classes = emb_weights.shape[0]
+
+            # Normalize embeddings to unit vectors
+            normed_emb = torch.nn.functional.normalize(emb_weights, p=2, dim=-1)
+
+            # Compute pairwise cosine similarity matrix
+            cosine_sim = torch.matmul(normed_emb, normed_emb.t())  # [num_classes, num_classes]
+
+            # Get off-diagonal similarities (exclude self-similarity)
+            mask = ~torch.eye(num_classes, device=cosine_sim.device, dtype=torch.bool)
+            off_diagonal_sim = cosine_sim[mask].abs()
+
+            min_sim = off_diagonal_sim.min().item()
+            mean_sim = off_diagonal_sim.mean().item()
+            max_sim = off_diagonal_sim.max().item()
+
+            return {
+                "min_embedding_similarity": min_sim,
+                "mean_embedding_similarity": mean_sim,
+                "max_embedding_similarity": max_sim,
             }
 
     def get_checkpoint_state_dict(self) -> Dict[str, torch.Tensor]:
