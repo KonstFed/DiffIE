@@ -50,7 +50,8 @@ class DiffusionTrainer(BaseTrainer):
 
     def get_trainable_models(self) -> List[nn.Module]:
         """Return list of models that should be optimized."""
-        return [self.model.denoiser]
+        return [self.model.denoiser, self.model.label_mapper]  # Add label_mapper!
+        # return [self.model.denoiser]
 
     def get_eval_models(self) -> List[nn.Module]:
         """Return list of models that should be set to eval mode during validation."""
