@@ -1,5 +1,5 @@
 """Training loop for diffusion-based OpenIE model."""
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -26,6 +26,7 @@ class DiffusionTrainer(BaseTrainer):
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
         max_grad_norm: float = 1.0,
+        class_weights: Optional[List[float]] = None,
     ):
         """
         Args:
@@ -34,6 +35,8 @@ class DiffusionTrainer(BaseTrainer):
             learning_rate: Learning rate for optimizer
             weight_decay: Weight decay for optimizer
             max_grad_norm: Maximum gradient norm for clipping
+            class_weights: Optional list of class weights for balanced loss.
+                If None, uses uniform weights (no balancing).
         """
         # Move model to device
         self.model = model.to(device)
@@ -48,6 +51,16 @@ class DiffusionTrainer(BaseTrainer):
 
         # Loss function
         self.criterion = nn.MSELoss(reduction="none")
+
+        # Class weights for balanced loss
+        if class_weights is not None:
+            self.class_weights = torch.tensor(
+                class_weights, dtype=torch.float32, device=device
+            )
+        else:
+            # Default: uniform weights (no balancing)
+            num_classes = model.label_mapper.num_classes
+            self.class_weights = torch.ones(num_classes, dtype=torch.float32, device=device)
 
     def get_trainable_models(self) -> List[nn.Module]:
         """Return list of models that should be optimized."""
@@ -115,7 +128,15 @@ class DiffusionTrainer(BaseTrainer):
         # Only compute loss on non-padding tokens
         mask = attention_mask.unsqueeze(-1).expand_as(x_0)  # [B, L, x_dim]
         loss_per_element = self.criterion(x0_pred, x_0)  # [B, L, x_dim]
-        loss = (loss_per_element * mask).sum() / mask.sum()  # Mean over valid tokens
+
+        # Apply class weights for balanced loss
+        # Get weight for each token based on its label
+        weight_per_token = self.class_weights[label_indices]  # [B, L]
+        weight_mask = weight_per_token.unsqueeze(-1).expand_as(loss_per_element)  # [B, L, x_dim]
+
+        # Weighted loss: apply both attention mask and class weights
+        weighted_loss = loss_per_element * mask * weight_mask
+        loss = weighted_loss.sum() / (mask * weight_mask).sum()  # Mean over weighted valid tokens
 
         # Backward pass
         self.optimizer.zero_grad()
@@ -235,7 +256,14 @@ class DiffusionTrainer(BaseTrainer):
             # Only compute loss on non-padding tokens
             mask = attention_mask.unsqueeze(-1).expand_as(x_0)  # [B, L, x_dim]
             loss_per_element = self.criterion(x0_pred, x_0)  # [B, L, x_dim]
-            loss = (loss_per_element * mask).sum() / mask.sum()  # Mean over valid tokens
+
+            # Apply class weights for balanced loss (same as training)
+            weight_per_token = self.class_weights[label_indices]  # [B, L]
+            weight_mask = weight_per_token.unsqueeze(-1).expand_as(loss_per_element)  # [B, L, x_dim]
+
+            # Weighted loss: apply both attention mask and class weights
+            weighted_loss = loss_per_element * mask * weight_mask
+            loss = weighted_loss.sum() / (mask * weight_mask).sum()  # Mean over weighted valid tokens
 
             return {
                 "loss": loss.item(),
@@ -303,6 +331,8 @@ class DiffusionTrainerConfig(BaseTrainerConfig):
     Inherits from BaseTrainerConfig and adds factory method for DiffusionTrainer.
     """
 
+    class_weights: Optional[List[float]] = None
+
     def create(self, model: DiffusionSequenceLabeler) -> DiffusionTrainer:
         """
         Factory method to create a DiffusionTrainer instance.
@@ -323,4 +353,5 @@ class DiffusionTrainerConfig(BaseTrainerConfig):
             learning_rate=self.learning_rate,
             weight_decay=self.weight_decay,
             max_grad_norm=self.max_grad_norm,
+            class_weights=self.class_weights,
         )

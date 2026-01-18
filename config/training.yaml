@@ -6,6 +6,9 @@ trainer:
   learning_rate: 1e-4
   weight_decay: 0.01
   max_grad_norm: 1.0
+  # Class weights for balanced loss (inverse frequency weighting)
+  # Ratios: [0.6823, 0.1261, 0.1603, 0.0312] for classes [O, Subject, Object, Predicate]
+  class_weights: [1.466, 7.931, 6.238, 32.051]  # Computed as 1/ratio, normalized
 
 # Model configuration (encoder, label_mapper, scheduler, denoiser)
 model:
