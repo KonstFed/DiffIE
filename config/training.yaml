@@ -21,7 +21,7 @@ model:
   # Label mapper: converts label indices to embeddings
   label_mapper:
     num_classes: 4  # O, Subject, Object, Predicate
-    embedding_dim: 256
+    embedding_dim: 512
   
   # Diffusion scheduler: handles noise schedule
   scheduler:
@@ -31,13 +31,13 @@ model:
   
   # Denoiser: predicts x0 from noisy x_t
   denoiser:
-    x_dim: 256  # Must match label_mapper.embedding_dim
+    x_dim: 512  # Must match label_mapper.embedding_dim
     bert_dim: 768  # Must match BERT encoder output (bert-base-uncased = 768)
     num_steps: 1000  # Must match scheduler.num_steps
-    d_model: 256
-    n_layers: 4
-    n_heads: 8
-    d_ff: 1024
+    d_model: 512
+    n_layers: 8
+    n_heads: 16
+    d_ff: 2048
 
 # Data loading configuration
 data:
