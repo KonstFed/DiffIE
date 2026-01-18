@@ -9,7 +9,6 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from pydantic import BaseModel, model_validator
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 
 class BaseTrainer(ABC):
@@ -245,6 +244,30 @@ class BaseTrainer(ABC):
             "val_loss": avg_loss,
         }
 
+    def _compute_component_metrics(
+        self,
+        predictions: torch.Tensor,
+        labels: torch.Tensor,
+        label_value: int,
+    ) -> tuple[int, int, int]:
+        """
+        Compute overlap and counts for a specific component (subject, object, or predicate).
+
+        Args:
+            predictions: Predicted label indices
+            labels: True label indices
+            label_value: Label value to match (1=subject, 2=object, 3=predicate)
+
+        Returns:
+            Tuple of (overlap, predicted_count, gold_count)
+        """
+        pred_mask = (predictions == label_value).long()
+        gold_mask = (labels == label_value).long()
+        overlap = (pred_mask * gold_mask).sum().item()
+        pred_count = pred_mask.sum().item()
+        gold_count = gold_mask.sum().item()
+        return overlap, pred_count, gold_count
+
     def compute_metrics(
         self,
         predictions: torch.Tensor,  # [B, L] or [N]
@@ -253,16 +276,18 @@ class BaseTrainer(ABC):
         num_classes: int = 4,
     ) -> Dict[str, float]:
         """
-        Compute sequence labeling metrics.
+        Compute CaRB-style metrics based on token overlap between predicted and gold extractions.
 
         Args:
             predictions: Predicted label indices [B, L] or [N]
+                (0=O, 1=subject, 2=object, 3=predicate)
             labels: True label indices [B, L] or [N]
+                (0=O, 1=subject, 2=object, 3=predicate)
             attention_mask: Attention mask (1 for real tokens, 0 for padding) [B, L] or [N]
-            num_classes: Number of label classes
+            num_classes: Number of label classes (unused, kept for compatibility)
 
         Returns:
-            Dictionary with accuracy, precision, recall, F1 (per class and macro-averaged)
+            Dictionary with precision, recall, and F1 based on token overlap
         """
         # Flatten if needed
         if predictions.dim() > 1:
@@ -275,60 +300,51 @@ class BaseTrainer(ABC):
         # Mask out padding tokens if mask is provided
         if attention_mask is not None:
             mask = attention_mask.bool()
-            pred_flat = predictions[mask].cpu().numpy()
-            label_flat = labels[mask].cpu().numpy()
+            pred_flat = predictions[mask]
+            label_flat = labels[mask]
         else:
-            pred_flat = predictions.cpu().numpy()
-            label_flat = labels.cpu().numpy()
+            pred_flat = predictions
+            label_flat = labels
 
-        # Convert to numpy arrays for sklearn
-        # Ensure all class indices are present (sklearn needs this for proper averaging)
-        labels_list = list(range(num_classes))
+        # Convert to CPU for processing
+        pred_flat = pred_flat.cpu()
+        label_flat = label_flat.cpu()
 
-        # Compute accuracy
-        accuracy = accuracy_score(label_flat, pred_flat)
-
-        # Compute per-class and macro-averaged metrics
-        precision, recall, f1, support = precision_recall_fscore_support(
-            label_flat,
-            pred_flat,
-            labels=labels_list,
-            average=None,  # Returns per-class metrics
-            zero_division=0.0,
+        # Compute metrics for each component separately
+        # Subject = 1, Object = 2, Predicate = 3
+        overlap_subj, pred_subj_count, gold_subj_count = self._compute_component_metrics(
+            pred_flat, label_flat, 1
+        )
+        overlap_obj, pred_obj_count, gold_obj_count = self._compute_component_metrics(
+            pred_flat, label_flat, 2
+        )
+        overlap_pred, pred_pred_count, gold_pred_count = self._compute_component_metrics(
+            pred_flat, label_flat, 3
         )
 
-        # Compute macro-averaged metrics
-        macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
-            label_flat,
-            pred_flat,
-            labels=labels_list,
-            average="macro",
-            zero_division=0.0,
-        )
+        # Sum overlaps and totals across all components
+        total_overlap = overlap_subj + overlap_obj + overlap_pred
+        total_predicted = pred_subj_count + pred_obj_count + pred_pred_count
+        total_gold = gold_subj_count + gold_obj_count + gold_pred_count
 
-        # Compute weighted F1 (weighted by class frequency)
-        _, _, weighted_f1, _ = precision_recall_fscore_support(
-            label_flat,
-            pred_flat,
-            labels=labels_list,
-            average="weighted",
-            zero_division=0.0,
-        )
+        # Compute CaRB-style metrics (micro-averaged)
+        # Precision: sum of overlaps / sum of predicted tokens
+        precision = total_overlap / total_predicted if total_predicted > 0 else 0.0
 
-        # Convert to dictionaries for per-class metrics
-        class_precision = {i: float(precision[i]) for i in range(num_classes)}
-        class_recall = {i: float(recall[i]) for i in range(num_classes)}
-        class_f1 = {i: float(f1[i]) for i in range(num_classes)}
+        # Recall: sum of overlaps / sum of gold tokens
+        recall = total_overlap / total_gold if total_gold > 0 else 0.0
+
+        # F1: harmonic mean of precision and recall
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
 
         return {
-            "accuracy": float(accuracy),
-            "macro_precision": float(macro_precision),
-            "macro_recall": float(macro_recall),
-            "macro_f1": float(macro_f1),
-            "weighted_f1": float(weighted_f1),
-            "class_precision": class_precision,
-            "class_recall": class_recall,
-            "class_f1": class_f1,
+            "precision": float(precision),
+            "recall": float(recall),
+            "f1": float(f1),
         }
 
     def validate(
@@ -440,23 +456,11 @@ class BaseTrainer(ABC):
 
             if val_metrics is not None:
                 print(
-                    f"  Val accuracy: {val_metrics['accuracy']:.4f}, "
-                    f"Val macro F1: {val_metrics['macro_f1']:.4f}, "
-                    f"Val weighted F1: {val_metrics['weighted_f1']:.4f}"
+                    f"  Val Precision: {val_metrics['precision']:.4f}, "
+                    f"Val Recall: {val_metrics['recall']:.4f}, "
+                    f"Val F1: {val_metrics['f1']:.4f}"
                 )
-                # Print per-class F1 scores
-                print("  Per-class F1:", end=" ")
-                for class_idx in range(num_classes):
-                    class_name = (
-                        ["O", "Subject", "Object", "Predicate"][class_idx]
-                        if class_idx < 4
-                        else f"Class{class_idx}"
-                    )
-                    print(
-                        f"{class_name}: {val_metrics['class_f1'][class_idx]:.4f}",
-                        end="  ",
-                    )
-                print()
+
 
             # Save checkpoint
             if save_path and epoch % save_interval == 0:
