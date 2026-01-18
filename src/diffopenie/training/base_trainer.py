@@ -197,7 +197,7 @@ class BaseTrainer(ABC):
 
             # Log periodically
             if (batch_idx + 1) % log_interval == 0:
-                metric_str = ", ".join([f"{k}={v:.4f}" for k, v in metrics.items()])
+                metric_str = ", ".join([f"{k}={v:.3g}" for k, v in metrics.items()])
                 tqdm.write(f"Step {self.global_step}: {metric_str}")
 
         # Average metrics
@@ -450,18 +450,18 @@ class BaseTrainer(ABC):
             if val_dataloader is not None and epoch % val_full_interval == 0:
                 val_metrics = self.validate(val_dataloader, num_classes)
 
-            # Print metrics
-            metric_str = ", ".join([f"{k}={v:.4f}" for k, v in train_metrics.items()])
+            # Print metrics with smart formatting (up to 20 significant digits, auto scientific)
+            metric_str = ", ".join([f"{k}={v:.20g}" for k, v in train_metrics.items()])
             print(f"Epoch {epoch}/{num_epochs} completed. Train: {metric_str}")
 
             if val_loss_metrics is not None:
-                print(f"  Val loss: {val_loss_metrics['val_loss']:.4f}")
+                print(f"  Val loss: {val_loss_metrics['val_loss']:.20g}")
 
             if val_metrics is not None:
                 print(
-                    f"  Val Precision: {val_metrics['precision']:.4f}, "
-                    f"Val Recall: {val_metrics['recall']:.4f}, "
-                    f"Val F1: {val_metrics['f1']:.4f}"
+                    f"  Val Precision: {val_metrics['precision']:.20g}, "
+                    f"Val Recall: {val_metrics['recall']:.20g}, "
+                    f"Val F1: {val_metrics['f1']:.20g}"
                 )
 
                 # Save best model based on F1 score
