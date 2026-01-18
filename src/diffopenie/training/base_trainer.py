@@ -433,6 +433,9 @@ class BaseTrainer(ABC):
                 f"Validation loss computed every epoch, full validation every {val_full_interval} epochs"
             )
 
+        # Track best validation F1 for saving best model
+        best_f1 = -1.0
+
         for epoch in range(1, num_epochs + 1):
             # Training
             train_metrics = self.train_epoch(train_dataloader, epoch, log_interval)
@@ -461,6 +464,13 @@ class BaseTrainer(ABC):
                     f"Val F1: {val_metrics['f1']:.4f}"
                 )
 
+                # Save best model based on F1 score
+                if save_path and val_metrics['f1'] > best_f1:
+                    best_f1 = val_metrics['f1']
+                    self.save_checkpoint(
+                        save_path, epoch, suffix="best", extra_info={"best_f1": best_f1}
+                    )
+                    print(f"  New best F1: {best_f1:.4f}, saved best checkpoint")
 
             # Save checkpoint
             if save_path and epoch % save_interval == 0:
@@ -486,8 +496,22 @@ class BaseTrainer(ABC):
         """
         pass
 
-    def save_checkpoint(self, path: str, epoch: int):
-        """Save training checkpoint."""
+    def save_checkpoint(
+        self,
+        path: str,
+        epoch: int,
+        suffix: Optional[str] = None,
+        extra_info: Optional[Dict] = None,
+    ):
+        """
+        Save training checkpoint.
+
+        Args:
+            path: Directory path to save checkpoint
+            epoch: Current epoch number
+            suffix: Optional suffix for checkpoint filename (e.g., "best")
+            extra_info: Optional dictionary with additional info to save in checkpoint
+        """
         checkpoint = {
             "epoch": epoch,
             "global_step": self.global_step,
@@ -496,9 +520,15 @@ class BaseTrainer(ABC):
             else None,
         }
         checkpoint.update(self.get_checkpoint_state_dict())
+        if extra_info:
+            checkpoint.update(extra_info)
         os.makedirs(path, exist_ok=True)
-        torch.save(checkpoint, f"{path}/checkpoint_epoch_{epoch}.pt")
-        print(f"Checkpoint saved to {path}/checkpoint_epoch_{epoch}.pt")
+        if suffix:
+            filename = f"{path}/checkpoint_{suffix}.pt"
+        else:
+            filename = f"{path}/checkpoint_epoch_{epoch}.pt"
+        torch.save(checkpoint, filename)
+        print(f"Checkpoint saved to {filename}")
 
     def load_checkpoint(self, path: str):
         """Load training checkpoint."""
