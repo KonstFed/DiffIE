@@ -1,8 +1,12 @@
-import torch
-from torch.utils.data import Dataset
-from datasets import load_dataset
-from transformers import BertTokenizerFast
+import logging
+
 import pandas as pd
+import torch
+from datasets import load_dataset
+from torch.utils.data import Dataset
+from transformers import BertTokenizerFast
+
+logger = logging.getLogger(__name__)
 
 
 def get_left_right_border(label: list[str], tag_prefix: str) -> tuple[int, int]:
@@ -57,20 +61,25 @@ def word_to_token_indices(
 
 def _is_label_continous(labels: list[str], prefix: str) -> bool:
     """Check if given label is continous"""
-    # find first index of label with prefix
     first_index = next((i for i, l in enumerate(labels) if l.startswith(prefix)), None)
-    # find last index of label with prefix
     last_index = next(
         (i for i in range(len(labels) - 1, -1, -1) if labels[i].startswith(prefix)),
         None,
     )
-    return all(labels[first_index : last_index + 1].map(lambda x: x.startswith(prefix)))
+    if first_index is None or last_index is None:
+        return False
+    return all(lab.startswith(prefix) for lab in labels[first_index : last_index + 1])
 
 
 class SpanLSOIEDataset(Dataset):
     """Dataset for the LSOIE dataset."""
 
-    def __init__(self, split: str = "train", tokenizer_name: str = "bert-base-uncased"):
+    def __init__(
+        self,
+        split: str = "train",
+        tokenizer_name: str = "bert-base-uncased",
+        filter_spans: bool = True,
+    ):
         self.split = split
         self.tokenizer = BertTokenizerFast.from_pretrained(
             tokenizer_name, use_fast=True
@@ -79,15 +88,21 @@ class SpanLSOIEDataset(Dataset):
         dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)[split]
         dataset = pd.DataFrame(dataset)
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
-        self.dataset = dataset.sort_values(by="sentence")
+        self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True)
+
+        self.filter_spans = filter_spans
+        if filter_spans:
+            self._filter()
+        else:
+            logger.info("Span dataset filtering: disabled")
 
     def __len__(self) -> int:
         return len(self.dataset)
 
     def _filter(self) -> None:
         """Filter triplets with None or not continous spans"""
-        to_drop = []
-        none_idx = []
+        to_drop: list[int] = []
+        none_idx: list[int] = []
         for i in range(len(self.dataset)):
             row = self.get_words_item(i)
             labels = row["labels"]
@@ -96,8 +111,7 @@ class SpanLSOIEDataset(Dataset):
                 or row["object_span"] is None
                 or row["relation_span"] is None
             ):
-                # one of the elements of triplet is None
-                none_idx.append(self.dataset.drop(i))
+                none_idx.append(i)
                 continue
 
             if (
@@ -105,9 +119,15 @@ class SpanLSOIEDataset(Dataset):
                 or not _is_label_continous(labels, "A1")
                 or not _is_label_continous(labels, "P")
             ):
-                # non continous span
-                to_drop.append(self.dataset.drop(i))
+                to_drop.append(i)
 
+        total_filtered = len(none_idx) + len(to_drop)
+        logger.info(
+            "Span dataset filtering: total_filtered=%d (None=%d, non_continuous=%d)",
+            total_filtered,
+            len(none_idx),
+            len(to_drop),
+        )
         self.dataset = self.dataset.drop(to_drop + none_idx)
 
     def get_words_item(
@@ -225,7 +245,10 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
 
 
 if __name__ == "__main__":
-    ds = SequenceLSOEIDataset(split="train")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s [%(name)s] %(message)s",
+    )
+    # ds = SequenceLSOEIDataset(split="train")
+    ds = SpanLSOIEDataset(split="train")
     print(ds[0])
-    # for i in range(len(ds)):
-    #     print(ds[i])
