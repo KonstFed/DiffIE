@@ -55,6 +55,18 @@ def word_to_token_indices(
     return token_start, token_end
 
 
+def _is_label_continous(labels: list[str], prefix: str) -> bool:
+    """Check if given label is continous"""
+    # find first index of label with prefix
+    first_index = next((i for i, l in enumerate(labels) if l.startswith(prefix)), None)
+    # find last index of label with prefix
+    last_index = next(
+        (i for i in range(len(labels) - 1, -1, -1) if labels[i].startswith(prefix)),
+        None,
+    )
+    return all(labels[first_index : last_index + 1].map(lambda x: x.startswith(prefix)))
+
+
 class SpanLSOIEDataset(Dataset):
     """Dataset for the LSOIE dataset."""
 
@@ -72,6 +84,51 @@ class SpanLSOIEDataset(Dataset):
     def __len__(self) -> int:
         return len(self.dataset)
 
+    def _filter(self) -> None:
+        """Filter triplets with None or not continous spans"""
+        to_drop = []
+        none_idx = []
+        for i in range(len(self.dataset)):
+            row = self.get_words_item(i)
+            labels = row["labels"]
+            if (
+                row["subject_span"] is None
+                or row["object_span"] is None
+                or row["relation_span"] is None
+            ):
+                # one of the elements of triplet is None
+                none_idx.append(self.dataset.drop(i))
+                continue
+
+            if (
+                not _is_label_continous(labels, "A0")
+                or not _is_label_continous(labels, "A1")
+                or not _is_label_continous(labels, "P")
+            ):
+                # non continous span
+                to_drop.append(self.dataset.drop(i))
+
+        self.dataset = self.dataset.drop(to_drop + none_idx)
+
+    def get_words_item(
+        self,
+        idx: int,
+    ) -> dict[str, list]:
+        row = self.dataset.iloc[idx]
+        words = row["words"]
+        labels = row["label"]
+
+        # Get word-level indices for A0, A1, P
+        (s_l, s_r), (o_l, o_r), (p_l, p_r) = labels_to_indices(labels)
+        return {
+            "words": words,
+            "labels": labels,
+            # if any is None, span doesn't exists
+            "subject_span": (s_l, s_r) if s_l is not None else None,
+            "object_span": (o_l, o_r) if o_l is not None else None,
+            "relation_span": (p_l, p_r) if p_l is not None else None,
+        }
+
     def __getitem__(self, idx: int) -> dict:
         """get tokens and triple for the given index
 
@@ -81,12 +138,11 @@ class SpanLSOIEDataset(Dataset):
         Returns:
             dict: tokens, token_ids, spans
         """
-        row = self.dataset.iloc[idx]
+        row = self.get_words_item(idx)
         words = row["words"]
-        labels = row["label"]
-
-        # Get word-level indices for A0, A1, P
-        (s_l, s_r), (o_l, o_r), (p_l, p_r) = labels_to_indices(labels)
+        s_l, s_r = row["subject_span"]
+        o_l, o_r = row["object_span"]
+        p_l, p_r = row["relation_span"]
 
         # Tokenize words
         encoding = self.tokenizer(
@@ -106,10 +162,9 @@ class SpanLSOIEDataset(Dataset):
         return {
             "tokens": tokens,
             "token_ids": encoding["input_ids"],
-            "spans": token_triplets,  # ((s_start, s_end), (o_start, o_end), (p_start, p_end))
-            # "word_ids": word_ids,
-            # "words": words,
-            # "labels": labels,
+            "subject_span": token_triplets[0],
+            "object_span": token_triplets[1],
+            "predicate_span": token_triplets[2],
         }
 
 
@@ -153,14 +208,14 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
         label[object_indices] = 2
         label[predicate_indices] = 3
 
-        # sanity check
-        si = set(subject_indices)
-        oi = set(object_indices)
-        pi = set(predicate_indices)
+        # # sanity check
+        # si = set(subject_indices)
+        # oi = set(object_indices)
+        # pi = set(predicate_indices)
 
-        if (si & oi) or (si & pi) or (oi & pi):
-            raise ValueError("Subject, object, and predicate indices must be disjoint")
-        # sanity check end
+        # if (si & oi) or (si & pi) or (oi & pi):
+        #     raise ValueError("Subject, object, and predicate indices must be disjoint")
+        # # sanity check end
 
         return {
             "tokens": tokens,
