@@ -4,12 +4,12 @@ from tqdm import tqdm
 
 from diffopenie.training.train_example import TrainingConfig
 from diffopenie.utils import load_config
-from diffopenie.models.diffusion_model import DiffusionSequenceLabeler
+from diffopenie.models.base_model import BaseTripletModel
 
 
 def load_model(
     config: TrainingConfig, checkpoint_path: Path
-) -> DiffusionSequenceLabeler:
+) -> BaseTripletModel:
     model = config.model.create()
     trainer = config.trainer.create(model=model)
     trainer.load_checkpoint(checkpoint_path)
@@ -44,7 +44,7 @@ def format_carb_txt(
 
 
 def process_sentences(
-    model: DiffusionSequenceLabeler,
+    model: BaseTripletModel,
     sentences: list[str],
     batch_size: int = 32,
 ) -> list[tuple[str, str, str, str]]:

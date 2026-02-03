@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 
-class TripletModel(ABC):
+class BaseTripletModel(ABC):
     @abstractmethod
     def get_triplets(
         self, words: list[list[str]]

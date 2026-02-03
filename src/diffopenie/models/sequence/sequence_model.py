@@ -12,6 +12,7 @@ from diffopenie.models.sequence.denoiser import (
 from diffopenie.diffusion.scheduler import LinearScheduler, LinearSchedulerConfig
 from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
 from diffopenie.data.triplet_utils import extract_longest_span
+from diffopenie.models.base_model import BaseTripletModel
 
 
 class EmbeddingLabelMapper(nn.Module):
@@ -55,7 +56,7 @@ class EmbeddingLabelMapper(nn.Module):
         labels = torch.argmax(sim, dim=-1)
         return labels
 
-class DiffusionSequenceLabeler(nn.Module):
+class DiffusionSequenceLabeler(nn.Module, BaseTripletModel):
     """
     Unified diffusion model for sequence labeling.
 
