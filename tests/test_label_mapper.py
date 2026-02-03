@@ -1,6 +1,6 @@
 import torch
 
-from diffopenie.models.sequence.diffusion_model import EmbeddingLabelMapper
+from diffopenie.models.sequence.sequence_model import EmbeddingLabelMapper
 
 
 def test_label_mapper():
