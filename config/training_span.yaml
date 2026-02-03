@@ -21,9 +21,9 @@ model:
   denoiser:
     bert_dim: 768
     num_steps: 1000
-    d_model: 512
+    d_model: 1024
     n_heads: 8
-    n_layers: 1
+    n_layers: 10
     d_ff: 2048
     dropout: 0.1
 
@@ -38,9 +38,9 @@ data:
   pad_token_id: 0
   pad_label_idx: 0
 
-num_epochs: 100
+num_epochs: 1000
 log_interval: 500
 save_path: checkpoints
 save_interval: 5
-val_full_interval: 5
+val_full_interval: 20
 num_classes: 4
