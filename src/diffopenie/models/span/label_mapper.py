@@ -2,9 +2,6 @@ import torch
 from torch import nn
 from pydantic import BaseModel
 
-# -----------------------Span mappers-------------------------------------
-
-
 class ContinuousSpanMapper:
     """Map triplets into continuous space"""
 
