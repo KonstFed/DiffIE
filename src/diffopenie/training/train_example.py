@@ -6,8 +6,8 @@ from torch.utils.data import DataLoader
 from pydantic import BaseModel
 
 from diffopenie.utils import load_config
-from diffopenie.training.trainer import DiffusionTrainerConfig
-from diffopenie.models.diffusion_model import DiffusionSequenceLabelerConfig
+from diffopenie.training.sequence_trainer import DiffusionTrainerConfig
+from diffopenie.models.sequence import DiffusionSequenceLabelerConfig
 from diffopenie.data.dataset import SequenceLSOEIDataset
 from diffopenie.data.collator import DiffusionCollator
 

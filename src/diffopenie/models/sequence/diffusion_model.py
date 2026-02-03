@@ -5,12 +5,55 @@ import torch.nn as nn
 from typing import Dict
 from pydantic import BaseModel
 
-from diffopenie.diffusion.denoiser import DiffusionSLDenoiser, DiffusionSLDenoiserConfig
+from diffopenie.models.sequence.denoiser import (
+    DiffusionSLDenoiser,
+    DiffusionSLDenoiserConfig,
+)
 from diffopenie.diffusion.scheduler import LinearScheduler, LinearSchedulerConfig
-from diffopenie.models.label_mapper import LabelMapper, LabelMapperConfig
 from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
 from diffopenie.data.triplet_utils import extract_longest_span
 
+
+class EmbeddingLabelMapper(nn.Module):
+    """Map token labels to embeddings and vice verca as lookup table."""
+
+    def __init__(self, num_classes: int, embedding_dim: int):
+        super().__init__()
+        self.num_classes = num_classes
+        self.embs = nn.Embedding(num_classes, embedding_dim=embedding_dim)
+        self.embs.weight.requires_grad = False  # Freeze embedding weights
+        self.embedding_dim = embedding_dim
+
+    def forward(self, labels: torch.LongTensor) -> torch.FloatTensor:
+        embeddings = self.embs(labels)
+        return embeddings
+
+    def reverse(self, embeddings: torch.FloatTensor) -> torch.LongTensor:
+        """Reverse the mapping from embeddings to labels.
+
+        We use cosine similarity to find the closest label to the embedding.
+
+        Args:
+            embeddings (torch.FloatTensor): Embeddings to map to labels [batch_size, embedding_dim]
+
+        Returns:
+            torch.LongTensor: Labels [batch_size]
+        """
+        # get embedding weights: (num_classes, embedding_dim)
+        weight = self.embs.weight  # shape: (num_classes, embedding_dim)
+        # Normalize embeddings and weights to unit vectors
+        normed_inputs = torch.nn.functional.normalize(
+            embeddings, p=2, dim=-1
+        )  # (..., embedding_dim)
+        normed_weights = torch.nn.functional.normalize(
+            weight, p=2, dim=-1
+        )  # (num_classes, embedding_dim)
+        # Compute cosine similarity: (..., num_classes)
+        # Cosine distance = 1 - cosine similarity, so argmax of cosine similarity gives min cosine distance
+        sim = torch.matmul(normed_inputs, normed_weights.t())  # (..., num_classes)
+        # For each input embedding, get label with highest cosine similarity (i.e., lowest cosine distance)
+        labels = torch.argmax(sim, dim=-1)
+        return labels
 
 class DiffusionSequenceLabeler(nn.Module):
     """
@@ -29,7 +72,7 @@ class DiffusionSequenceLabeler(nn.Module):
         self,
         denoiser: DiffusionSLDenoiser,
         scheduler: LinearScheduler,
-        label_mapper: LabelMapper,
+        label_mapper: EmbeddingLabelMapper,
         encoder: BERTEncoder,
     ):
         """
@@ -91,8 +134,7 @@ class DiffusionSequenceLabeler(nn.Module):
         return pred_indices
 
     def get_triplets(
-        self,
-        words: list[list[str]]
+        self, words: list[list[str]]
     ) -> list[tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]:
         """
         Get triplets from a batch of sentences.
@@ -111,7 +153,7 @@ class DiffusionSequenceLabeler(nn.Module):
             is_split_into_words=True,
             add_special_tokens=False,
             padding=True,
-            return_tensors="pt"
+            return_tensors="pt",
         )
 
         input_ids = encodings["input_ids"].to(device)
@@ -216,6 +258,34 @@ class DiffusionSequenceLabeler(nn.Module):
         if include_encoder and "encoder_state_dict" in checkpoint:
             self.encoder.load_state_dict(checkpoint["encoder_state_dict"])
 
+# -----------------------pydantic configs-------------------------------------
+
+class EmbeddingLabelMapperConfig(BaseModel):
+    """
+    Configuration model for EmbeddingLabelMapper.
+    Acts as a factory for creating EmbeddingLabelMapper instances.
+    """
+
+    num_classes: int = 4
+    embedding_dim: int = 256
+
+    def create(self) -> EmbeddingLabelMapper:
+        """
+        Factory method to create a EmbeddingLabelMapper instance.
+
+        Returns:
+            Instance of EmbeddingLabelMapper
+
+        Example:
+            config = EmbeddingLabelMapperConfig(num_classes=4, embedding_dim=256)
+            label_mapper = config.create()
+        """
+        return EmbeddingLabelMapper(
+            num_classes=self.num_classes,
+            embedding_dim=self.embedding_dim,
+        )
+
+
 
 class DiffusionSequenceLabelerConfig(BaseModel):
     """
@@ -228,7 +298,7 @@ class DiffusionSequenceLabelerConfig(BaseModel):
     """
 
     encoder: BERTEncoderConfig
-    label_mapper: LabelMapperConfig
+    label_mapper: EmbeddingLabelMapperConfig
     scheduler: LinearSchedulerConfig
     denoiser: DiffusionSLDenoiserConfig
 

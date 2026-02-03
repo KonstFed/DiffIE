@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from diffopenie.models.diffusion_model import DiffusionSequenceLabeler
+from diffopenie.models.sequence import DiffusionSequenceLabeler
 from diffopenie.training.base_trainer import BaseTrainer, BaseTrainerConfig
 
 

@@ -73,6 +73,9 @@ def _is_label_continous(labels: list[str], prefix: str) -> bool:
 
 class SpanLSOIEDataset(Dataset):
     """Dataset for the LSOIE dataset."""
+    # TODO: add option to compute Bert Embeddings on init
+    # to increase performance
+
 
     def __init__(
         self,

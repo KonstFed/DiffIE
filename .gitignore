@@ -1,6 +1,9 @@
 dataset
 checkpoints/
 results
+.vscode
+*.ipynb
+notes/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
