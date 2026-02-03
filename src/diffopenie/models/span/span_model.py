@@ -96,8 +96,7 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         x_o_pred =  self.denoiser.forward(
             x_t=x_t,
             t=t,
-            token_embeddings=token_embeddings,
-            attn_mask=attention_mask,
+            condition=(token_embeddings, attention_mask),
         ) # [B, 6, L]
         x_o_pred = x_o_pred - x_o_pred.mean(dim=-1, keepdim=True)
         return x_o_pred

@@ -64,10 +64,10 @@ class SpanDiffusionTrainer(BaseTrainer):
         self.optimizer.zero_grad()
         loss.backward()
 
-        trainable_params = []
-        for m in self.get_trainable_models():
-            trainable_params.extend(m.parameters())
-        torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=self.max_grad_norm)
+        # trainable_params = []
+        # for m in self.get_trainable_models():
+        #     trainable_params.extend(m.parameters())
+        # torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=self.max_grad_norm)
         self.optimizer.step()
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
