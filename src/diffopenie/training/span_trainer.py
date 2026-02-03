@@ -55,8 +55,7 @@ class SpanDiffusionTrainer(BaseTrainer):
         x0_pred = self.model.denoiser(
             x_t=x_t,
             t=t,
-            token_embeddings=token_embeddings,
-            attn_mask=attention_mask.bool(),
+            condition=(token_embeddings, attention_mask.bool()),
         )
         mask = attention_mask.unsqueeze(1).expand_as(x_0)
         loss = (self.criterion(x0_pred, x_0) * mask).sum() / mask.sum().clamp(min=1)
