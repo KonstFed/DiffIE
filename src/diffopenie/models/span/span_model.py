@@ -46,9 +46,56 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         self.label_mapper = label_mapper
         self.encoder = encoder
 
-    def get_triplets(self, words: list[list[str]]) -> list[tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]:
-        raise NotImplementedError("SpanDiffusionModel does not support get_triplets")
-        return None
+    @torch.no_grad()
+    def get_triplets(
+        self, words: list[list[str]]
+    ) -> list[tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]:
+        """Get triplets (subj, obj, pred) as word spans from a batch of word lists."""
+        # TODO: Vibe coded, need verification
+        if not words:
+            return []
+        device = next(self.parameters()).device
+        encodings = self.encoder.tokenizer(
+            words,
+            is_split_into_words=True,
+            add_special_tokens=False,
+            padding=True,
+            return_tensors="pt",
+        )
+        token_ids = encodings["input_ids"].to(device)
+        attention_mask = encodings["attention_mask"].to(device)
+        pred_spans = self.predict(token_ids, attention_mask).cpu()  # [B, 6]
+        num_words = [len(w) for w in words]
+        results = []
+        for i in range(len(words)):
+            word_ids_list = encodings.word_ids(batch_index=i)
+            L = len(word_ids_list)
+            nw = num_words[i]
+
+            def token_to_word(tok_idx: int, default: int) -> int:
+                idx = max(0, min(int(tok_idx), L - 1))
+                w = word_ids_list[idx]
+                return w if w is not None else default
+
+            s_l = token_to_word(pred_spans[i, 0].item(), 0)
+            s_r = token_to_word(pred_spans[i, 1].item(), 0)
+            o_l = token_to_word(pred_spans[i, 2].item(), 0)
+            o_r = token_to_word(pred_spans[i, 3].item(), 0)
+            p_l = token_to_word(pred_spans[i, 4].item(), 0)
+            p_r = token_to_word(pred_spans[i, 5].item(), 0)
+            s_l, s_r = max(0, min(s_l, nw - 1)), max(0, min(s_r, nw - 1))
+            o_l, o_r = max(0, min(o_l, nw - 1)), max(0, min(o_r, nw - 1))
+            p_l, p_r = max(0, min(p_l, nw - 1)), max(0, min(p_r, nw - 1))
+            if s_l > s_r:
+                s_r = s_l
+            if o_l > o_r:
+                o_r = o_l
+            if p_l > p_r:
+                p_r = p_l
+            results.append(
+                ((s_l, s_r), (o_l, o_r), (p_l, p_r))
+            )
+        return results
 
     @torch.no_grad()
     def predict(
