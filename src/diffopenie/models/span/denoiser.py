@@ -140,8 +140,7 @@ class SpanDenoiser(nn.Module):
         self,
         x_t: torch.Tensor,  # [B, 6, L] slot PMFs π_t
         t: torch.Tensor,  # [B]
-        token_embeddings: torch.Tensor,  # [B, L, bert_dim] H
-        attn_mask: torch.Tensor | None = None,  # [B, L] True=keep, False=pad
+        condition: tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
         """
         One denoising step: predict pointer logits for the 6 slots.
@@ -150,6 +149,7 @@ class SpanDenoiser(nn.Module):
             logits: [B, 6, L] — π_{t-1} = softmax_row(logits) or residual update.
             PAD positions are masked with large negative value so they get no mass.
         """
+        token_embeddings, attn_mask = condition
         B, _, L = x_t.shape
         H = token_embeddings  # [B, L, bert_dim]
 
@@ -194,4 +194,5 @@ class SpanDenoiser(nn.Module):
             )
         # normalize logits for smoother training
         logits = logits - logits.mean(dim=-1, keepdim=True)
+        logits = logits / logits.std(dim=-1, keepdim=True)
         return logits
