@@ -1,6 +1,4 @@
 import torch
-from torch import nn
-from pydantic import BaseModel
 
 class ContinuousSpanMapper:
     """Map triplets into continuous space"""
@@ -45,8 +43,7 @@ class ContinuousSpanMapper:
     ) -> torch.FloatTensor:
         """Map triplet labels into continuous space.
 
-        Each label vector should have 6 elements: [S_l, S_r
-        where:
+        Each label vector should have 6 elements:
         - S_l: Start index of the subject span
         - S_r: End index of the subject span
         - O_l: Start index of the object span

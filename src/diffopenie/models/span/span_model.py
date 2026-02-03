@@ -25,30 +25,51 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         self.label_mapper = label_mapper
         self.encoder = encoder
 
-    def train_step(
-        self,
-        token_ids: torch.LongTensor,
-        attention_mask: torch.Tensor,
-        label_spans: torch.LongTensor,
-    ) -> torch.LongTensor:
-        """Train step for the model.
+    # @torch.no_grad()
+    # def predict(self, token_ids: torch.LongTensor, attention_mask: torch.Tensor) -> torch.LongTensor:
+    #     """
+    #     Predict triplets from a batch of sentences.
+    #     """
+    #     token_embeddings = self.encoder(token_ids, attention_mask)
+    #     noise_shape = (
+    #         token_ids.shape[0],
+    #     )
 
-        Args:
-            token_ids: Token IDs [B, L]
-            attention_mask: Attention mask [B, L]
-            label_spans: Label spans [B, 6]
+    # def get_triplets(
+    #     self, words: list[list[str]]
+    # ) -> list[tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]:
+    #     """
+    #     Get triplets from a batch of sentences.
+    #     """
+    #     device = next(self.parameters()).device
+    #     # TODO: finish
 
-        Returns:
-            torch.LongTensor: _description_
-        """
-        token_embeddings = self.encoder(token_ids, attention_mask)
-        return self.label_mapper(token_embeddings)
+    # def train_step(
+    #     self,
+    #     token_ids: torch.LongTensor,
+    #     attention_mask: torch.Tensor,
+    #     label_spans: torch.LongTensor,
+    # ) -> torch.LongTensor:
+    #     """Train step for the model.
+
+    #     Args:
+    #         token_ids: Token IDs [B, L]
+    #         attention_mask: Attention mask [B, L]
+    #         label_spans: Label spans [B, 6]
+
+    #     Returns:
+    #         torch.LongTensor: _description_
+    #     """
+    #     # TODO: maybe remove this func
+    #     token_embeddings = self.encoder(token_ids, attention_mask) # [B, L, bert_dim]
+    #     x_0 = self.label_mapper(label_spans) # [B, 6, L]
+
+    #     return self.label_mapper(token_embeddings)
 
     def noise(self, x_0: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """a.k.a. forward process
 
-        x_0 - [B, 6, L]"""
-
+        spans - [B, 6, L]"""
         # apply normal noise as usual
         noise = torch.randn_like(x_0)
         x_t = self.scheduler.q_sample(x_0, t, noise)
@@ -56,6 +77,7 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         # Project to zero-mean since softmax is invariant to adding a constant
         # (i.e. shifts in the all-ones direction do not change probabilities)
         x_t = x_t - x_t.mean(dim=-1, keepdim=True)
+        return x_t
 
     def denoise(
         self,
