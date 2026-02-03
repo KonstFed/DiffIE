@@ -1,5 +1,7 @@
-from diffopenie.models.span.span_model import SpanDiffusionModel
-from diffopenie.models.span.denoiser import SpanDenoiser
-from diffopenie.models.span.label_mapper import ContinuousSpanMapper
+from diffopenie.models.span.span_model import (
+    SpanDiffusionModel,
+    SpanDiffusionModelConfig,
+)
 
-__all__ = ["SpanDiffusionModel"]
+
+__all__ = ["SpanDiffusionModel", "SpanDiffusionModelConfig"]

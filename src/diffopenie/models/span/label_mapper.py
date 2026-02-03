@@ -1,13 +1,25 @@
 import torch
 
+
 class ContinuousSpanMapper:
     """Map triplets into continuous space"""
 
     def __init__(self, logit_value: float = 1.0):
         self.logit_value = logit_value
 
+    def get_random(
+        self,
+        n: int,
+        sentence_len: int,
+        device: torch.device | None = None,
+    ) -> torch.FloatTensor:
+        """Get random x_t vector for inference"""
+        return torch.randn(n, 6, sentence_len, device=device)
+
     def forward_index(
-        self, index: torch.LongTensor, sentence_len: int,
+        self,
+        index: torch.LongTensor,
+        sentence_len: int,
     ) -> torch.FloatTensor:
         """Map index into continuous space.
 
@@ -21,13 +33,16 @@ class ContinuousSpanMapper:
         """
         B = index.shape[0]
         out = torch.zeros(
-            B, sentence_len,
+            B,
+            sentence_len,
             device=index.device,
             dtype=torch.float32,
         )
         value = torch.full(
-            (B, 1), self.logit_value,
-            device=index.device, dtype=torch.float32,
+            (B, 1),
+            self.logit_value,
+            device=index.device,
+            dtype=torch.float32,
         )
         out.scatter_(1, index, value)
         return out

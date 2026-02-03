@@ -1,5 +1,5 @@
 """Training loop for diffusion-based OpenIE model."""
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Literal
 
 import torch
 import torch.nn as nn
@@ -331,6 +331,7 @@ class DiffusionTrainerConfig(BaseTrainerConfig):
     Inherits from BaseTrainerConfig and adds factory method for DiffusionTrainer.
     """
 
+    type: Literal["sequence_trainer"] = "sequence_trainer"
     class_weights: Optional[List[float]] = None
 
     def create(self, model: DiffusionSequenceLabeler) -> DiffusionTrainer:

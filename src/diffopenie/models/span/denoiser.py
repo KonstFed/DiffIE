@@ -192,5 +192,6 @@ class SpanDenoiser(nn.Module):
                 ~attn_mask.unsqueeze(1).expand(B, NUM_SLOTS, L),
                 LOGIT_MASK_VALUE,
             )
-
+        # normalize logits for smoother training
+        logits = logits - logits.mean(dim=-1, keepdim=True)
         return logits

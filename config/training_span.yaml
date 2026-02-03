@@ -1,0 +1,46 @@
+# Span training: diffusion over (S_l, S_r, O_l, O_r, P_l, P_r) token spans
+
+trainer:
+  type: "span_trainer"
+  device: null
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+
+model:
+  encoder:
+    model_name: "bert-base-uncased"
+    freeze: true
+    add_special_tokens: true
+  label_mapper:
+    logit_value: 1.0
+  scheduler:
+    num_steps: 1000
+    beta_start: 0.0001
+    beta_end: 0.02
+  denoiser:
+    bert_dim: 768
+    num_steps: 1000
+    d_model: 512
+    n_heads: 8
+    n_layers: 1
+    d_ff: 2048
+    dropout: 0.1
+
+data:
+  dataset:
+    type: "span"
+    split: "train"
+    tokenizer_name: "bert-base-uncased"
+    filter_spans: true
+  batch_size: 32
+  num_workers: 4
+  pad_token_id: 0
+  pad_label_idx: 0
+
+num_epochs: 100
+log_interval: 500
+save_path: checkpoints
+save_interval: 5
+val_full_interval: 5
+num_classes: 4

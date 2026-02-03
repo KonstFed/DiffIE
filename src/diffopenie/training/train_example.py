@@ -1,26 +1,29 @@
 """Training example with configuration and CLI for diffusion-based OpenIE model."""
 
 import argparse
-from typing import Optional
+from typing import Annotated, Optional
 from torch.utils.data import DataLoader
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from diffopenie.utils import load_config
 from diffopenie.training.sequence_trainer import DiffusionTrainerConfig
+from diffopenie.training.span_trainer import SpanDiffusionTrainerConfig
+from diffopenie.models.span import SpanDiffusionModelConfig
 from diffopenie.models.sequence import DiffusionSequenceLabelerConfig
-from diffopenie.data.dataset import SequenceLSOEIDataset
-from diffopenie.data.collator import SequenceCollator
+from diffopenie.data.dataset import SequenceLSOEIDatasetConfig, SpanLSOEIDatasetConfig
+from diffopenie.data.collator import SequenceCollator, SpanCollator
 
 
 class DataConfig(BaseModel):
     """Configuration for data loading."""
-
-    dataset_name: str = "SequenceLSOEIDataset"  # Dataset class name
-    tokenizer_name: str = "bert-base-uncased"
+    dataset: Annotated[
+        SequenceLSOEIDatasetConfig | SpanLSOEIDatasetConfig,
+        Field(discriminator="type"),
+    ]
     batch_size: int = 32
     num_workers: int = 4
-    pad_token_id: int = 0
-    pad_label_idx: int = 0
+    pad_token_id: int = 0 # not needed for span
+    pad_label_idx: int = 0 # not needed for span
 
 
 class TrainingConfig(BaseModel):
@@ -33,8 +36,11 @@ class TrainingConfig(BaseModel):
     - data_config: Configuration for data loading (dataset, dataloader settings)
     """
 
-    trainer: DiffusionTrainerConfig
-    model: DiffusionSequenceLabelerConfig
+    trainer: Annotated[
+        DiffusionTrainerConfig | SpanDiffusionTrainerConfig,
+        Field(discriminator="type"),
+    ]
+    model: DiffusionSequenceLabelerConfig | SpanDiffusionModelConfig
     data: DataConfig
 
     # Training hyperparameters
@@ -67,21 +73,22 @@ def create_training_components(config: TrainingConfig):
     trainer = config.trainer.create(model=model)
 
     # Create datasets
-    train_dataset = SequenceLSOEIDataset(
-        split="train",
-        tokenizer_name=config.data.tokenizer_name,
-    )
+    train_dataset = config.data.dataset.create(split="train")
 
-    val_dataset = SequenceLSOEIDataset(
-        split="validation",
-        tokenizer_name=config.data.tokenizer_name,
-    )
+    val_dataset = config.data.dataset.create(split="validation")
 
     # Create collator
-    collator = SequenceCollator(
-        pad_token_id=config.data.pad_token_id,
-        pad_label_idx=config.data.pad_label_idx,
-    )
+    if config.data.dataset.type == "sequence":
+        collator = SequenceCollator(
+            pad_token_id=config.data.pad_token_id,
+            pad_label_idx=config.data.pad_label_idx,
+        )
+    elif config.data.dataset.type == "span":
+        collator = SpanCollator(
+            pad_token_id=config.data.pad_token_id,
+        )
+    else:
+        raise ValueError(f"Invalid dataset type: {config.data.dataset.type}")
 
     # Create dataloaders
     train_dataloader = DataLoader(

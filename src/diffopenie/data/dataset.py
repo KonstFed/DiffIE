@@ -5,6 +5,7 @@ import torch
 from datasets import load_dataset
 from torch.utils.data import Dataset
 from transformers import BertTokenizerFast
+from typing import Literal
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -251,14 +252,13 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
 class SpanLSOEIDatasetConfig(BaseModel):
     """Configuration for SpanLSOIEDataset."""
 
-    type: str = "span"
-    split: str = "train"
+    type: Literal["span"] = "span"
     tokenizer_name: str = "bert-base-uncased"
     filter_spans: bool = True
 
-    def create(self) -> SpanLSOIEDataset:
+    def create(self, split: str) -> SpanLSOIEDataset:
         return SpanLSOIEDataset(
-            split=self.split,
+            split=split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
         )
@@ -267,14 +267,13 @@ class SpanLSOEIDatasetConfig(BaseModel):
 class SequenceLSOEIDatasetConfig(BaseModel):
     """Configuration for SequenceLSOIEDataset."""
 
-    type: str = "sequence"
-    split: str = "train"
+    type: Literal["sequence"] = "sequence"
     tokenizer_name: str = "bert-base-uncased"
     filter_spans: bool = False
 
-    def create(self) -> SequenceLSOEIDataset:
+    def create(self, split: str) -> SequenceLSOEIDataset:
         return SequenceLSOEIDataset(
-            split=self.split,
+            split=split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
         )

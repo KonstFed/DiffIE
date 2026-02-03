@@ -562,3 +562,6 @@ class BaseTrainerConfig(BaseModel):
         if self.device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         return self
+
+    def create_trainer(self, model: nn.Module) -> BaseTrainer:
+        raise NotImplementedError("Subclasses must implement create_trainer method")
