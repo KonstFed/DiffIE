@@ -5,9 +5,9 @@ from torch.nn.utils.rnn import pad_sequence
 from typing import Dict, List, Any
 
 
-class DiffusionCollator:
+class SequenceCollator:
     """
-    Collator for batching diffusion training data.
+    Collator for batching sequence training data.
 
     Handles:
     - Padding token_ids and attention masks

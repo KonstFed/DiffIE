@@ -9,7 +9,7 @@ from diffopenie.utils import load_config
 from diffopenie.training.sequence_trainer import DiffusionTrainerConfig
 from diffopenie.models.sequence import DiffusionSequenceLabelerConfig
 from diffopenie.data.dataset import SequenceLSOEIDataset
-from diffopenie.data.collator import DiffusionCollator
+from diffopenie.data.collator import SequenceCollator
 
 
 class DataConfig(BaseModel):
@@ -78,7 +78,7 @@ def create_training_components(config: TrainingConfig):
     )
 
     # Create collator
-    collator = DiffusionCollator(
+    collator = SequenceCollator(
         pad_token_id=config.data.pad_token_id,
         pad_label_idx=config.data.pad_label_idx,
     )
