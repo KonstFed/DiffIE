@@ -96,6 +96,7 @@ def create_training_components(config: TrainingConfig):
         batch_size=config.data.batch_size,
         shuffle=True,
         num_workers=config.data.num_workers,
+        pin_memory=True,
         collate_fn=collator,
     )
 
@@ -104,6 +105,7 @@ def create_training_components(config: TrainingConfig):
         batch_size=config.data.batch_size,
         shuffle=False,
         num_workers=config.data.num_workers,
+        pin_memory=True,
         collate_fn=collator,
     )
 
