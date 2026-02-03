@@ -5,6 +5,7 @@ import torch
 from datasets import load_dataset
 from torch.utils.data import Dataset
 from transformers import BertTokenizerFast
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +74,9 @@ def _is_label_continous(labels: list[str], prefix: str) -> bool:
 
 class SpanLSOIEDataset(Dataset):
     """Dataset for the LSOIE dataset."""
+
     # TODO: add option to compute Bert Embeddings on init
     # to increase performance
-
 
     def __init__(
         self,
@@ -245,6 +246,38 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
             "token_ids": encoding["input_ids"],
             "labels": label,
         }
+
+
+class SpanLSOEIDatasetConfig(BaseModel):
+    """Configuration for SpanLSOIEDataset."""
+
+    type: str = "span"
+    split: str = "train"
+    tokenizer_name: str = "bert-base-uncased"
+    filter_spans: bool = True
+
+    def create(self) -> SpanLSOIEDataset:
+        return SpanLSOIEDataset(
+            split=self.split,
+            tokenizer_name=self.tokenizer_name,
+            filter_spans=self.filter_spans,
+        )
+
+
+class SequenceLSOEIDatasetConfig(BaseModel):
+    """Configuration for SequenceLSOIEDataset."""
+
+    type: str = "sequence"
+    split: str = "train"
+    tokenizer_name: str = "bert-base-uncased"
+    filter_spans: bool = False
+
+    def create(self) -> SequenceLSOEIDataset:
+        return SequenceLSOEIDataset(
+            split=self.split,
+            tokenizer_name=self.tokenizer_name,
+            filter_spans=self.filter_spans,
+        )
 
 
 if __name__ == "__main__":

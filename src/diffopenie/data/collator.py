@@ -5,6 +5,19 @@ from torch.nn.utils.rnn import pad_sequence
 from typing import Dict, List, Any
 
 
+# ContinuousSpanMapper.forward expects [B, 6]: (S_l, S_r, O_l, O_r, P_l, P_r).
+SPAN_LABEL_ORDER = ("S_l", "S_r", "O_l", "O_r", "P_l", "P_r")
+
+
+def _span_to_indices(span: tuple) -> tuple[int, int]:
+    """(start, end) or (None, None) -> (int, int); use -1 for missing."""
+    left, right = span
+    return (
+        -1 if left is None else left,
+        -1 if right is None else right,
+    )
+
+
 class SequenceCollator:
     """
     Collator for batching sequence training data.
@@ -28,46 +41,44 @@ class SequenceCollator:
         self.pad_token_id = pad_token_id
         self.pad_label_idx = pad_label_idx
 
+    def _pad_tokens(
+        self, batch: List[Dict[str, Any]]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Pad token_ids and build attention_mask. Returns (token_ids, mask)."""
+        token_ids_list = [
+            torch.tensor(item["token_ids"], dtype=torch.long) for item in batch
+        ]
+        token_ids = pad_sequence(
+            token_ids_list,
+            batch_first=True,
+            padding_value=self.pad_token_id,
+        )  # [B, L]
+        attention_mask = (token_ids != self.pad_token_id).long()  # [B, L]
+        return token_ids, attention_mask
+
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         """
         Collate a batch of examples.
 
         Expected batch items:
         - token_ids: List[int]
-        - labels: torch.Tensor of shape [L] with label indices (0=O, 1=subject, 2=object, 3=predicate)
+        - labels: torch.Tensor of shape [L] with label indices
+          (0=O, 1=subject, 2=object, 3=predicate)
         """
-        # Extract token_ids and labels
-        token_ids_list = [
-            torch.tensor(item["token_ids"], dtype=torch.long) for item in batch
-        ]
+        token_ids, attention_mask = self._pad_tokens(batch)
         labels_list = [item.get("labels") for item in batch]
-
-        # Pad token_ids
-        token_ids = pad_sequence(
-            token_ids_list,
-            batch_first=True,
-            padding_value=self.pad_token_id,
-        )  # [B, L]
-
-        # Create attention mask (1 for real tokens, 0 for padding)
-        attention_mask = (token_ids != self.pad_token_id).long()  # [B, L]
-
-        # Pad labels
         max_len = token_ids.size(1)
         label_indices_list = []
 
         for i, labels in enumerate(labels_list):
+            seq_len = len(batch[i]["token_ids"])
             if labels is None:
-                # If no labels provided, create a dummy sequence
-                label_indices = torch.zeros(len(token_ids_list[i]), dtype=torch.long)
+                label_indices = torch.zeros(seq_len, dtype=torch.long)
             elif isinstance(labels, torch.Tensor):
-                # Labels are already a tensor
                 label_indices = labels.clone()
             else:
-                # Convert list to tensor if needed
                 label_indices = torch.tensor(labels, dtype=torch.long)
 
-            # Pad or truncate to max_len
             if len(label_indices) < max_len:
                 padding = torch.full(
                     (max_len - len(label_indices),),
@@ -86,4 +97,47 @@ class SequenceCollator:
             "token_ids": token_ids,
             "attention_mask": attention_mask,
             "label_indices": label_indices,
+        }
+
+
+class SpanCollator(SequenceCollator):
+    """
+    Collator for batching span training data (subject/object/predicate spans).
+
+    Outputs label_spans [B, 6] in ContinuousSpanMapper format:
+    (S_l, S_r, O_l, O_r, P_l, P_r). Uses -1 for missing span bounds.
+    """
+
+    def __init__(self, pad_token_id: int = 0, **kwargs: Any):
+        super().__init__(pad_token_id=pad_token_id, pad_label_idx=0, **kwargs)
+
+    def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        """
+        Collate a batch of span examples.
+
+        Expected batch items (from SpanLSOIEDataset):
+        - token_ids: List[int]
+        - subject_span: (int, int) or (None, None)
+        - object_span: (int, int) or (None, None)
+        - predicate_span: (int, int) or (None, None)
+
+        Returns label_spans [B, 6] as (S_l, S_r, O_l, O_r, P_l, P_r) for
+        ContinuousSpanMapper.forward(labels, sentence_len).
+        """
+        token_ids, attention_mask = self._pad_tokens(batch)
+
+        # [B, 6] in label_mapper order: S_l, S_r, O_l, O_r, P_l, P_r
+        label_spans_list = []
+        for item in batch:
+            s_l, s_r = _span_to_indices(item["subject_span"])
+            o_l, o_r = _span_to_indices(item["object_span"])
+            p_l, p_r = _span_to_indices(item["predicate_span"])
+            label_spans_list.append([s_l, s_r, o_l, o_r, p_l, p_r])
+
+        label_spans = torch.tensor(label_spans_list, dtype=torch.long)  # [B, 6]
+
+        return {
+            "token_ids": token_ids,
+            "attention_mask": attention_mask,
+            "label_spans": label_spans,
         }
