@@ -145,7 +145,10 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
             t=t,
             condition=(token_embeddings, attention_mask),
         ) # [B, 6, L]
+
+        # normalize logits to improve training stability
         x_o_pred = x_o_pred - x_o_pred.mean(dim=-1, keepdim=True)
+        x_o_pred = x_o_pred / x_o_pred.std(dim=-1, keepdim=True)
         return x_o_pred
 
     def encode_tokens(

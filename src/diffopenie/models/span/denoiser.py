@@ -193,6 +193,4 @@ class SpanDenoiser(nn.Module):
                 LOGIT_MASK_VALUE,
             )
         # normalize logits for smoother training
-        logits = logits - logits.mean(dim=-1, keepdim=True)
-        logits = logits / logits.std(dim=-1, keepdim=True)
         return logits

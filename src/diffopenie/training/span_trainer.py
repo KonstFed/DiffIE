@@ -52,10 +52,11 @@ class SpanDiffusionTrainer(BaseTrainer):
         )
         x_t = self.model.noise(x_0, t)
 
-        x0_pred = self.model.denoiser(
+        x0_pred = self.model.denoise(
             x_t=x_t,
             t=t,
-            condition=(token_embeddings, attention_mask.bool()),
+            token_embeddings=token_embeddings,
+            attention_mask=attention_mask.bool(),
         )
         mask = attention_mask.unsqueeze(1).expand_as(x_0)
         loss = (self.criterion(x0_pred, x_0) * mask).sum() / mask.sum().clamp(min=1)
@@ -107,11 +108,11 @@ class SpanDiffusionTrainer(BaseTrainer):
                 dtype=torch.long,
             )
             x_t = self.model.noise(x_0, t)
-            x0_pred = self.model.denoiser(
+            x0_pred = self.model.denoise(
                 x_t=x_t,
                 t=t,
                 token_embeddings=token_embeddings,
-                attn_mask=attention_mask.bool(),
+                attention_mask=attention_mask.bool(),
             )
             mask = attention_mask.unsqueeze(1).expand_as(x_0)
             loss = (self.criterion(x0_pred, x_0) * mask).sum() / mask.sum().clamp(min=1)
