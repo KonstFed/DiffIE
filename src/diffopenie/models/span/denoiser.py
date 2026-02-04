@@ -1,6 +1,8 @@
 from torch import nn
 import torch
 
+from diffopenie.models.span.label_mapper import ContinuousSpanMapper
+
 NUM_SLOTS = 6  # sub_l, sub_r, rel_l, rel_r, obj_l, obj_r
 
 class SlotDecoderBlock(nn.Module):
@@ -134,7 +136,7 @@ class SpanDenoiser(nn.Module):
 
     def forward(
         self,
-        x_t: torch.Tensor,  # [B, 6, L] slot PMFs π_t
+        x_t: torch.Tensor,  # [B, 6, L-1] logit space (inv additive-logistic)
         t: torch.Tensor,  # [B]
         condition: tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
@@ -142,11 +144,10 @@ class SpanDenoiser(nn.Module):
         One denoising step: predict pointer logits for the 6 slots.
 
         Returns:
-            logits: [B, 6, L] — π_{t-1} = softmax_row(logits) or residual update.
-            PAD positions are masked with large negative value so they get no mass.
+            logits: [B, 6, L-1] — same logit space as x_t.
         """
         token_embeddings, attn_mask = condition
-        B, _, L = x_t.shape
+        B, _, D = x_t.shape  # D = L - 1 (logit space)
         H = token_embeddings  # [B, L, bert_dim]
 
         # Zero H at PAD so C_t and pointer keys get no contribution from padding
@@ -156,16 +157,17 @@ class SpanDenoiser(nn.Module):
         # Safe timestep for nn.Embedding
         t = t.long().clamp(0, self.num_steps - 1)
 
-        # Normalize x_t to PMF over positions (masked: PAD gets no mass)
-        if attn_mask is not None:
-            pad_mask = ~attn_mask.bool()  # [B, L], True = pad
-            x_t_norm = x_t.masked_fill(pad_mask.unsqueeze(1), -1e9)
-        else:
-            x_t_norm = x_t
-        x_t_norm = torch.softmax(x_t_norm, dim=-1)
+        # Logit space [B, 6, L-1] -> PMF [B, 6, L] for C_t (inverse additive-logistic)
+        x_t_probs = ContinuousSpanMapper.logits_to_probs(
+            x_t, attention_mask=attn_mask
+        )  # [B, 6, L]
+        # if attn_mask is not None:
+        #     pad_mask = ~attn_mask.bool()  # [B, L], True = pad
+        #     x_t_probs = x_t_probs.masked_fill(pad_mask.unsqueeze(1), 0.0)
+        #     x_t_probs = x_t_probs / x_t_probs.sum(dim=-1, keepdim=True).clamp(min=1e-9)
 
         # 2.1 Slot content from PMFs: C_t = π_t H -> [B, 6, bert_dim]
-        C_t = torch.bmm(x_t_norm, H)
+        C_t = torch.bmm(x_t_probs, H)
         C_t = self.c_proj(C_t)  # [B, 6, d_model]
 
         # 2.2 Initial Q once: [C_t; slot_id; time_emb] -> Q [B, 6, d_model]
@@ -189,10 +191,11 @@ class SpanDenoiser(nn.Module):
         for block in self.blocks:
             Q = block(Q, memory, key_padding_mask)
 
-        # 2.4 Pointer logits: Up = W_o(Q), ℓ_t = Up @ Kp^T; mask PAD so they get no mass
+        # 2.4 Pointer logits: [B, 6, L-1] to match logit space (last pos = reference)
         Up = self.W_o(Q)  # [B, 6, d_model]
-        logits = torch.bmm(Up, Kp.transpose(1, 2))  # [B, 6, L]
+        Kp_first = Kp[:, :-1, :]  # [B, L-1, d_model]
+        logits = torch.bmm(Up, Kp_first.transpose(1, 2))  # [B, 6, L-1]
         if attn_mask is not None:
-            pad_mask = ~attn_mask.bool()  # [B, L], True = pad
-            logits = logits.masked_fill(pad_mask.unsqueeze(1), -1e9)
+            pad_mask_first = ~attn_mask[:, :-1].bool()  # [B, L-1], True = pad
+            logits = logits.masked_fill(pad_mask_first.unsqueeze(1), -1e9)
         return logits

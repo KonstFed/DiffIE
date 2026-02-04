@@ -39,10 +39,17 @@ class SpanDiffusionTrainer(BaseTrainer):
         token_ids = batch["token_ids"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
         label_spans = batch["label_spans"].to(self.device)
+        seq_len = batch["seq_len"].to(self.device)
         B, L = token_ids.shape
 
         token_embeddings = self.model.encode_tokens(token_ids, attention_mask)
-        x_0 = self.model.label_mapper.forward(label_spans, L).reshape(B, 6, L)
+        x_0 = self.model.label_mapper.forward(label_spans, seq_len).reshape(
+            B, 6, -1
+        )
+        assert x_0.shape[2] == L - 1, (
+            f"x_0 logit dim {x_0.shape[2]} != L-1 {L - 1}; "
+            "collator should pad to max length in batch so max(seq_len)=L."
+        )
         t = torch.randint(
             0,
             self.model.scheduler.num_steps,
@@ -58,7 +65,7 @@ class SpanDiffusionTrainer(BaseTrainer):
             token_embeddings=token_embeddings,
             attention_mask=attention_mask.bool(),
         )
-        mask = attention_mask.unsqueeze(1).expand_as(x_0)
+        mask = attention_mask[:, :-1].unsqueeze(1).expand_as(x_0)
         loss = (self.criterion(x0_pred, x_0) * mask).sum() / mask.sum().clamp(min=1)
 
         self.optimizer.zero_grad()
@@ -96,10 +103,17 @@ class SpanDiffusionTrainer(BaseTrainer):
             token_ids = batch["token_ids"].to(self.device)
             attention_mask = batch["attention_mask"].to(self.device)
             label_spans = batch["label_spans"].to(self.device)
+            seq_len = batch["seq_len"].to(self.device)
             B, L = token_ids.shape
 
             token_embeddings = self.model.encode_tokens(token_ids, attention_mask)
-            x_0 = self.model.label_mapper.forward(label_spans, L).reshape(B, 6, L)
+            x_0 = self.model.label_mapper.forward(label_spans, seq_len).reshape(
+                B, 6, -1
+            )
+            assert x_0.shape[2] == L - 1, (
+                f"x_0 logit dim {x_0.shape[2]} != L-1 {L - 1}; "
+                "collator should pad to max length in batch so max(seq_len)=L."
+            )
             t = torch.randint(
                 0,
                 self.model.scheduler.num_steps,
@@ -114,7 +128,7 @@ class SpanDiffusionTrainer(BaseTrainer):
                 token_embeddings=token_embeddings,
                 attention_mask=attention_mask.bool(),
             )
-            mask = attention_mask.unsqueeze(1).expand_as(x_0)
+            mask = attention_mask[:, :-1].unsqueeze(1).expand_as(x_0)
             loss = (self.criterion(x0_pred, x_0) * mask).sum() / mask.sum().clamp(min=1)
             return {"loss": loss.item()}
 

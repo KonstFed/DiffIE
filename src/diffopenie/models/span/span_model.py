@@ -109,26 +109,26 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         token_embeddings = self.encode_tokens(token_ids, attention_mask)
         attn_mask = attention_mask.bool()
         condition = (token_embeddings, attn_mask)
+        seq_len = attention_mask.sum(dim=1).clamp(min=2).long()
 
-        x_t = torch.randn(B, 6, L, device=device)
+        x_t = self.label_mapper.get_random(B, seq_len, device=device)
         for t_step in range(self.scheduler.num_steps - 1, -1, -1):
-            x_t = x_t - x_t.mean(dim=-1, keepdim=True)
             t = torch.full((B,), t_step, dtype=torch.long, device=device)
             x_t = self.scheduler.p_sample(self.denoiser, x_t, t, condition)
-        pred_spans = x_t.argmax(dim=-1)
+        pred_spans = self.label_mapper.reverse_index(x_t, seq_len)
         return pred_spans
 
     def noise(self, x_0: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """a.k.a. forward process
 
-        spans - [B, 6, L]"""
+        x_0: [B, 6, L-1] in logit space."""
         # apply normal noise as usual
         noise = torch.randn_like(x_0)
         x_t = self.scheduler.q_sample(x_0, t, noise)
 
         # Project to zero-mean since softmax is invariant to adding a constant
         # (i.e. shifts in the all-ones direction do not change probabilities)
-        x_t = x_t - x_t.mean(dim=-1, keepdim=True)
+        # x_t = x_t - x_t.mean(dim=-1, keepdim=True)
         return x_t
 
     def denoise(
@@ -147,8 +147,8 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         ) # [B, 6, L]
 
         # normalize logits to improve training stability
-        x_o_pred = x_o_pred - x_o_pred.mean(dim=-1, keepdim=True)
-        x_o_pred = x_o_pred / x_o_pred.std(dim=-1, keepdim=True)
+        # x_o_pred = x_o_pred - x_o_pred.mean(dim=-1, keepdim=True)
+        # x_o_pred = x_o_pred / x_o_pred.std(dim=-1, keepdim=True)
         return x_o_pred
 
     def encode_tokens(
@@ -176,9 +176,13 @@ class ContinuousSpanMapperConfig(BaseModel):
     """Config for ContinuousSpanMapper (span indices -> logits)."""
 
     logit_value: float = 1.0
+    epsilon: float = 0.01  # label smoothing: x̃_0 = (1-ε)*x_0 + ε/d
 
     def create(self) -> ContinuousSpanMapper:
-        return ContinuousSpanMapper(logit_value=self.logit_value)
+        return ContinuousSpanMapper(
+            logit_value=self.logit_value,
+            epsilon=self.epsilon,
+        )
 
 
 class SpanDenoiserConfig(BaseModel):

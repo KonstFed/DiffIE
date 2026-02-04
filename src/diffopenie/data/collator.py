@@ -121,8 +121,8 @@ class SpanCollator(SequenceCollator):
         - object_span: (int, int) or (None, None)
         - predicate_span: (int, int) or (None, None)
 
-        Returns label_spans [B, 6] as (S_l, S_r, O_l, O_r, P_l, P_r) for
-        ContinuousSpanMapper.forward(labels, sentence_len).
+        Returns token_ids, attention_mask, label_spans [B, 6], seq_len [B]
+        (per-example length for label_mapper).
         """
         token_ids, attention_mask = self._pad_tokens(batch)
 
@@ -135,9 +135,11 @@ class SpanCollator(SequenceCollator):
             label_spans_list.append([s_l, s_r, o_l, o_r, p_l, p_r])
 
         label_spans = torch.tensor(label_spans_list, dtype=torch.long)  # [B, 6]
+        seq_len = attention_mask.sum(dim=1).clamp(min=2).long()  # [B], for label_mapper
 
         return {
             "token_ids": token_ids,
             "attention_mask": attention_mask,
             "label_spans": label_spans,
+            "seq_len": seq_len,
         }
