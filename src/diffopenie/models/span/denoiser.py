@@ -3,10 +3,6 @@ import torch
 
 NUM_SLOTS = 6  # sub_l, sub_r, rel_l, rel_r, obj_l, obj_r
 
-# Large negative value to zero out logits at padded positions before softmax
-LOGIT_MASK_VALUE = -1e9
-
-
 class SlotDecoderBlock(nn.Module):
     """
     Decoder block: refines Q via pre-norm + residual
@@ -184,13 +180,5 @@ class SpanDenoiser(nn.Module):
         # 2.4 Pointer logits: Up = W_o(Q), ℓ_t = Up @ Kp^T
         Up = self.W_o(Q)  # [B, 6, d_model]
         logits = torch.bmm(Up, Kp.transpose(1, 2))  # [B, 6, L]
-
-        # Mask PAD positions so they receive no probability mass
-        if attn_mask is not None:
-            # attn_mask [B, L], True = keep -> mask pad (False) with -1e9
-            logits = logits.masked_fill(
-                ~attn_mask.unsqueeze(1).expand(B, NUM_SLOTS, L),
-                LOGIT_MASK_VALUE,
-            )
         # normalize logits for smoother training
         return logits
