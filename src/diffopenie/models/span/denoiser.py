@@ -149,11 +149,23 @@ class SpanDenoiser(nn.Module):
         B, _, L = x_t.shape
         H = token_embeddings  # [B, L, bert_dim]
 
+        # Zero H at PAD so C_t and pointer keys get no contribution from padding
+        if attn_mask is not None:
+            H = H * attn_mask.unsqueeze(-1).to(H.dtype)
+
         # Safe timestep for nn.Embedding
         t = t.long().clamp(0, self.num_steps - 1)
 
+        # Normalize x_t to PMF over positions (masked: PAD gets no mass)
+        if attn_mask is not None:
+            pad_mask = ~attn_mask.bool()  # [B, L], True = pad
+            x_t_norm = x_t.masked_fill(pad_mask.unsqueeze(1), -1e9)
+        else:
+            x_t_norm = x_t
+        x_t_norm = torch.softmax(x_t_norm, dim=-1)
+
         # 2.1 Slot content from PMFs: C_t = π_t H -> [B, 6, bert_dim]
-        C_t = torch.bmm(x_t, H)
+        C_t = torch.bmm(x_t_norm, H)
         C_t = self.c_proj(C_t)  # [B, 6, d_model]
 
         # 2.2 Initial Q once: [C_t; slot_id; time_emb] -> Q [B, 6, d_model]
@@ -177,8 +189,10 @@ class SpanDenoiser(nn.Module):
         for block in self.blocks:
             Q = block(Q, memory, key_padding_mask)
 
-        # 2.4 Pointer logits: Up = W_o(Q), ℓ_t = Up @ Kp^T
+        # 2.4 Pointer logits: Up = W_o(Q), ℓ_t = Up @ Kp^T; mask PAD so they get no mass
         Up = self.W_o(Q)  # [B, 6, d_model]
         logits = torch.bmm(Up, Kp.transpose(1, 2))  # [B, 6, L]
-        # normalize logits for smoother training
+        if attn_mask is not None:
+            pad_mask = ~attn_mask.bool()  # [B, L], True = pad
+            logits = logits.masked_fill(pad_mask.unsqueeze(1), -1e9)
         return logits
