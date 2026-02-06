@@ -103,10 +103,19 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         token_ids: torch.LongTensor,
         attention_mask: torch.Tensor,
     ) -> torch.LongTensor:
-        """Predict span indices [B, 6] from token_ids/attention_mask."""
-        B, L = token_ids.shape
-        device = token_ids.device
+        """Predict [B, 6] from token_ids/attention_mask (encodes on the fly)."""
         token_embeddings = self.encode_tokens(token_ids, attention_mask)
+        return self.predict_from_embeddings(token_embeddings, attention_mask)
+
+    @torch.no_grad()
+    def predict_from_embeddings(
+        self,
+        token_embeddings: torch.Tensor,  # [B, L, D]
+        attention_mask: torch.Tensor,
+    ) -> torch.LongTensor:
+        """Predict [B, 6] from precomputed token_embeddings (e.g. from dataset)."""
+        B, L, _ = token_embeddings.shape
+        device = token_embeddings.device
         attn_mask = attention_mask.bool()
         condition = (token_embeddings, attn_mask)
         seq_len = attention_mask.sum(dim=1).clamp(min=2).long()

@@ -78,7 +78,7 @@ class SpanDiffusionTrainer(BaseTrainer):
         seq_len = batch["seq_len"].to(self.device)
         B, L = token_ids.shape
 
-        token_embeddings = self.model.encode_tokens(token_ids, attention_mask)
+        token_embeddings = batch["token_embeddings"].to(self.device)
         x_0 = self.model.label_mapper.forward(label_spans, seq_len).reshape(
             B, 6, -1
         )
@@ -108,10 +108,6 @@ class SpanDiffusionTrainer(BaseTrainer):
         self.optimizer.zero_grad()
         loss.backward()
 
-        # trainable_params = []
-        # for m in self.get_trainable_models():
-        #     trainable_params.extend(m.parameters())
-        # torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=self.max_grad_norm)
         self.optimizer.step()
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
@@ -120,13 +116,13 @@ class SpanDiffusionTrainer(BaseTrainer):
 
     def validate_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         with torch.no_grad():
-            token_ids = batch["token_ids"].to(self.device)
             attention_mask = batch["attention_mask"].to(self.device)
             label_spans = batch["label_spans"].to(self.device)
-            B, L = token_ids.shape
-
-            pred_spans = self.model.predict(token_ids, attention_mask)
-            # this is big costil
+            B, L = attention_mask.shape
+            token_embeddings = batch["token_embeddings"].to(self.device)
+            pred_spans = self.model.predict_from_embeddings(
+                token_embeddings, attention_mask
+            )
             pred_labels = spans_to_token_labels(pred_spans, L)
             gold_labels = spans_to_token_labels(label_spans, L)
             return {
@@ -141,9 +137,8 @@ class SpanDiffusionTrainer(BaseTrainer):
             attention_mask = batch["attention_mask"].to(self.device)
             label_spans = batch["label_spans"].to(self.device)
             seq_len = batch["seq_len"].to(self.device)
+            token_embeddings = batch["token_embeddings"].to(self.device)
             B, L = token_ids.shape
-
-            token_embeddings = self.model.encode_tokens(token_ids, attention_mask)
             x_0 = self.model.label_mapper.forward(label_spans, seq_len).reshape(
                 B, 6, -1
             )

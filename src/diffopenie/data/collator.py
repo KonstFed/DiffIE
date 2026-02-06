@@ -1,6 +1,7 @@
 """Data collator for batching with padding."""
 
 import torch
+import numpy as np
 from torch.nn.utils.rnn import pad_sequence
 from typing import Dict, List, Any
 
@@ -100,9 +101,34 @@ class SequenceCollator:
         }
 
 
+def _pad_embeddings(
+    embeddings_list: List[torch.Tensor | np.ndarray],
+    max_len: int,
+    embed_dim: int,
+    device: torch.device | None = None,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """Pad variable-length embeddings [L_i, D] to [B, L, D] with zeros."""
+    B = len(embeddings_list)
+    padded = torch.zeros(B, max_len, embed_dim, dtype=dtype)
+    for i, emb in enumerate(embeddings_list):
+        if isinstance(emb, np.ndarray):
+            emb = torch.from_numpy(emb).to(dtype=dtype)
+        else:
+            emb = emb.to(dtype=dtype)
+        L_i = emb.size(0)
+        padded[i, :L_i] = emb
+    if device is not None:
+        padded = padded.to(device)
+    return padded
+
+
 class SpanCollator(SequenceCollator):
     """
     Collator for batching span training data (subject/object/predicate spans).
+
+    When batch items contain "token_embeddings" (precomputed), pads them to
+    [B, L, D] and returns "token_embeddings" in the batch.
 
     Outputs label_spans [B, 6] in ContinuousSpanMapper format:
     (S_l, S_r, O_l, O_r, P_l, P_r). Uses -1 for missing span bounds.
@@ -120,9 +146,10 @@ class SpanCollator(SequenceCollator):
         - subject_span: (int, int) or (None, None)
         - object_span: (int, int) or (None, None)
         - predicate_span: (int, int) or (None, None)
+        - token_embeddings: optional [L_i, D] array/tensor (precomputed)
 
-        Returns token_ids, attention_mask, label_spans [B, 6], seq_len [B]
-        (per-example length for label_mapper).
+        Returns token_ids, attention_mask, label_spans [B, 6], seq_len [B],
+        and token_embeddings [B, L, D] when present in items.
         """
         token_ids, attention_mask = self._pad_tokens(batch)
 
@@ -137,9 +164,30 @@ class SpanCollator(SequenceCollator):
         label_spans = torch.tensor(label_spans_list, dtype=torch.long)  # [B, 6]
         seq_len = attention_mask.sum(dim=1).clamp(min=2).long()  # [B], for label_mapper
 
-        return {
+        out: Dict[str, torch.Tensor] = {
             "token_ids": token_ids,
             "attention_mask": attention_mask,
             "label_spans": label_spans,
             "seq_len": seq_len,
         }
+
+        # Pad precomputed token_embeddings when present (train with precomputed embs)
+        has_embs = (
+            batch
+            and "token_embeddings" in batch[0]
+            and batch[0]["token_embeddings"] is not None
+        )
+        if has_embs:
+            _, L = token_ids.shape
+            emb_list = [item["token_embeddings"] for item in batch]
+            first = emb_list[0]
+            if isinstance(first, np.ndarray):
+                embed_dim = first.shape[1]
+            else:
+                embed_dim = first.shape[1]
+            token_embeddings = _pad_embeddings(
+                emb_list, L, embed_dim, device=None, dtype=torch.float32
+            )
+            out["token_embeddings"] = token_embeddings
+
+        return out
