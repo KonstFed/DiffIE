@@ -1,12 +1,16 @@
 import logging
 
 import pandas as pd
+from sympy.core import use
 import torch
 from datasets import load_dataset
 from torch.utils.data import Dataset
 from transformers import BertTokenizerFast
 from typing import Literal
 from pydantic import BaseModel
+from tqdm import trange
+
+from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +77,29 @@ def _is_label_continous(labels: list[str], prefix: str) -> bool:
     return all(lab.startswith(prefix) for lab in labels[first_index : last_index + 1])
 
 
-class SpanLSOIEDataset(Dataset):
+class CachedDataset(Dataset):
+    """Dataset that caches the data in memory."""
+
+    def __init__(self, use_cache: bool = False):
+        self._cache = []
+        self.use_cache = use_cache
+
+    def __getitem__(self, idx: int) -> dict:
+        if self.use_cache and len(self._cache) > idx and self._cache[idx] is not None:
+            return self._cache[idx]
+
+        item = self.get_item_uncached(idx)
+        if self.use_cache:
+            if len(self._cache) <= idx:
+                self._cache.extend([None] * (idx - len(self._cache) + 1))
+            self._cache[idx] = item
+        return item
+
+    def get_item_uncached(self, idx: int) -> dict:
+        raise NotImplementedError("Subclasses must implement this method")
+
+
+class SpanLSOIEDataset(CachedDataset):
     """Dataset for the LSOIE dataset."""
 
     # TODO: add option to compute Bert Embeddings on init
@@ -84,11 +110,11 @@ class SpanLSOIEDataset(Dataset):
         split: str = "train",
         tokenizer_name: str = "bert-base-uncased",
         filter_spans: bool = True,
+        use_cache: bool = False,
+        encoder: BERTEncoder | None = None,
     ):
+        super().__init__(use_cache=use_cache)
         self.split = split
-        self.tokenizer = BertTokenizerFast.from_pretrained(
-            tokenizer_name, use_fast=True
-        )
 
         dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)[split]
         dataset = pd.DataFrame(dataset)
@@ -100,6 +126,51 @@ class SpanLSOIEDataset(Dataset):
             self._filter()
         else:
             logger.info("Span dataset filtering: disabled")
+
+
+        self.encoder = encoder
+        if encoder is None:
+            self.tokenizer = BertTokenizerFast.from_pretrained(
+                tokenizer_name, use_fast=True
+            )
+        else:
+            self.tokenizer = encoder.tokenizer
+            self._encode_tokens()
+
+
+    def _encode_tokens(self, batch_size: int = 32) -> None:
+        # ugly precomputing of token embeddings
+        self.encoder.eval()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.encoder.to(device)
+        n = len(self.dataset)
+        # Pre-create column so each cell can hold a 2D array (object dtype)
+        self.dataset["token_embeddings"] = [None] * n
+        col_idx = self.dataset.columns.get_loc("token_embeddings")
+        with torch.no_grad():
+            for start in trange(0, n, batch_size):
+                end = min(start + batch_size, n)
+                batch_indices = list(range(start, end))
+                batch_words = [
+                    self.get_words_item(i)["words"] for i in batch_indices
+                ]
+                encoding = self.tokenizer(
+                    batch_words,
+                    is_split_into_words=True,
+                    add_special_tokens=False,
+                    padding=True,
+                    truncation=True,
+                    return_tensors="pt",
+                )
+                input_ids = encoding["input_ids"].to(device)
+                attention_mask = encoding["attention_mask"].to(device)
+                batch_embeddings = self.encoder.forward(input_ids, attention_mask)
+                for j, i in enumerate(batch_indices):
+                    mask = attention_mask[j] == 1
+                    arr = batch_embeddings[j, mask].cpu().numpy()
+                    self.dataset.iat[i, col_idx] = arr
+
+        self.encoder.to("cpu")
 
     def __len__(self) -> int:
         return len(self.dataset)
@@ -154,7 +225,7 @@ class SpanLSOIEDataset(Dataset):
             "relation_span": (p_l, p_r) if p_l is not None else None,
         }
 
-    def __getitem__(self, idx: int) -> dict:
+    def get_item_uncached(self, idx: int) -> dict:
         """get tokens and triple for the given index
 
         Args:
@@ -165,6 +236,8 @@ class SpanLSOIEDataset(Dataset):
         """
         row = self.get_words_item(idx)
         words = row["words"]
+        # ugly but ok
+        token_embeddings = self.dataset.iloc[idx]["token_embeddings"] if self.encoder is not None else None
         s_l, s_r = row["subject_span"]
         o_l, o_r = row["object_span"]
         p_l, p_r = row["relation_span"]
@@ -176,6 +249,7 @@ class SpanLSOIEDataset(Dataset):
 
         tokens = self.tokenizer.convert_ids_to_tokens(encoding["input_ids"])
         word_ids = encoding.word_ids()
+
 
         # Convert word indices to token indices
         token_triplets = (
@@ -190,11 +264,12 @@ class SpanLSOIEDataset(Dataset):
             "subject_span": token_triplets[0],
             "object_span": token_triplets[1],
             "predicate_span": token_triplets[2],
+            "token_embeddings": token_embeddings,
         }
 
 
 class SequenceLSOEIDataset(SpanLSOIEDataset):
-    def __getitem__(self, idx: int) -> dict:
+    def get_item_uncached(self, idx: int) -> dict:
         """get tokens and triple for the given index
 
         Args:
@@ -206,6 +281,7 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
         row = self.dataset.iloc[idx]
         words = row["words"]
         labels = row["label"]
+        token_embs = row["token_embeddings"]
 
         encoding = self.tokenizer(
             words, is_split_into_words=True, add_special_tokens=False
@@ -246,6 +322,7 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
             "tokens": tokens,
             "token_ids": encoding["input_ids"],
             "labels": label,
+            "token_embeddings": token_embs,
         }
 
 
@@ -255,12 +332,16 @@ class SpanLSOEIDatasetConfig(BaseModel):
     type: Literal["span"] = "span"
     tokenizer_name: str = "bert-base-uncased"
     filter_spans: bool = True
+    use_cache: bool = False
+    encoder: BERTEncoderConfig | None = None
 
     def create(self, split: str) -> SpanLSOIEDataset:
         return SpanLSOIEDataset(
             split=split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
+            use_cache=self.use_cache,
+            encoder=self.encoder.create() if self.encoder is not None else None,
         )
 
 
@@ -270,12 +351,16 @@ class SequenceLSOEIDatasetConfig(BaseModel):
     type: Literal["sequence"] = "sequence"
     tokenizer_name: str = "bert-base-uncased"
     filter_spans: bool = False
+    use_cache: bool = False
+    encoder: BERTEncoderConfig | None = None
 
     def create(self, split: str) -> SequenceLSOEIDataset:
         return SequenceLSOEIDataset(
             split=split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
+            use_cache=self.use_cache,
+            encoder=self.encoder.create() if self.encoder is not None else None,
         )
 
 
