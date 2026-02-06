@@ -1,3 +1,4 @@
+import os
 import logging
 
 import pandas as pd
@@ -5,12 +6,14 @@ from sympy.core import use
 import torch
 from datasets import load_dataset
 from torch.utils.data import Dataset
-from transformers import BertTokenizerFast
+from transformers import AutoTokenizer
 from typing import Literal
 from pydantic import BaseModel
 from tqdm import trange
 
 from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 logger = logging.getLogger(__name__)
 
@@ -80,26 +83,19 @@ def _is_label_continous(labels: list[str], prefix: str) -> bool:
 class CachedDataset(Dataset):
     """Dataset that caches the data in memory."""
 
-    def __init__(self, use_cache: bool = False):
+    def __init__(self, dataset: Dataset):
         self._cache = []
-        self.use_cache = use_cache
+        for i in range(len(dataset)):
+            self._cache.append(dataset[i])
+
+    def __len__(self) -> int:
+        return len(self._cache)
 
     def __getitem__(self, idx: int) -> dict:
-        if self.use_cache and len(self._cache) > idx and self._cache[idx] is not None:
-            return self._cache[idx]
-
-        item = self.get_item_uncached(idx)
-        if self.use_cache:
-            if len(self._cache) <= idx:
-                self._cache.extend([None] * (idx - len(self._cache) + 1))
-            self._cache[idx] = item
-        return item
-
-    def get_item_uncached(self, idx: int) -> dict:
-        raise NotImplementedError("Subclasses must implement this method")
+        return self._cache[idx]
 
 
-class SpanLSOIEDataset(CachedDataset):
+class SpanLSOIEDataset:
     """Dataset for the LSOIE dataset."""
 
     # TODO: add option to compute Bert Embeddings on init
@@ -110,10 +106,8 @@ class SpanLSOIEDataset(CachedDataset):
         split: str = "train",
         tokenizer_name: str = "bert-base-uncased",
         filter_spans: bool = True,
-        use_cache: bool = False,
         encoder: BERTEncoder | None = None,
     ):
-        super().__init__(use_cache=use_cache)
         self.split = split
 
         dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)[split]
@@ -130,9 +124,7 @@ class SpanLSOIEDataset(CachedDataset):
 
         self.encoder = encoder
         if encoder is None:
-            self.tokenizer = BertTokenizerFast.from_pretrained(
-                tokenizer_name, use_fast=True
-            )
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         else:
             self.tokenizer = encoder.tokenizer
             self._encode_tokens()
@@ -172,6 +164,8 @@ class SpanLSOIEDataset(CachedDataset):
                     self.dataset.iat[i, col_idx] = arr
 
         self.encoder.to("cpu")
+        del self.encoder
+        self.encoder = True
 
     def __len__(self) -> int:
         return len(self.dataset)
@@ -226,7 +220,7 @@ class SpanLSOIEDataset(CachedDataset):
             "relation_span": (p_l, p_r) if p_l is not None else None,
         }
 
-    def get_item_uncached(self, idx: int) -> dict:
+    def __getitem__(self, idx: int) -> dict:
         """get tokens and triple for the given index
 
         Args:
@@ -270,7 +264,7 @@ class SpanLSOIEDataset(CachedDataset):
 
 
 class SequenceLSOEIDataset(SpanLSOIEDataset):
-    def get_item_uncached(self, idx: int) -> dict:
+    def __getitem__(self, idx: int) -> dict:
         """get tokens and triple for the given index
 
         Args:
@@ -337,13 +331,16 @@ class SpanLSOEIDatasetConfig(BaseModel):
     encoder: BERTEncoderConfig | None = None
 
     def create(self, split: str) -> SpanLSOIEDataset:
-        return SpanLSOIEDataset(
+        ds = SpanLSOIEDataset(
             split=split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
-            use_cache=self.use_cache,
             encoder=self.encoder.create() if self.encoder is not None else None,
         )
+        if self.use_cache:
+            return CachedDataset(ds)
+        else:
+            return ds
 
 
 class SequenceLSOEIDatasetConfig(BaseModel):
@@ -356,13 +353,16 @@ class SequenceLSOEIDatasetConfig(BaseModel):
     encoder: BERTEncoderConfig | None = None
 
     def create(self, split: str) -> SequenceLSOEIDataset:
-        return SequenceLSOEIDataset(
+        ds = SequenceLSOEIDataset(
             split=split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
-            use_cache=self.use_cache,
             encoder=self.encoder.create() if self.encoder is not None else None,
         )
+        if self.use_cache:
+            return CachedDataset(ds)
+        else:
+            return ds
 
 
 if __name__ == "__main__":

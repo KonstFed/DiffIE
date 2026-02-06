@@ -39,7 +39,7 @@ class SpanDiffusionTrainer(BaseTrainer):
         return [self.model.denoiser]
 
     def get_eval_models(self) -> List[nn.Module]:
-        return [self.model.scheduler, self.model.encoder]
+        return [self.model.scheduler]
 
     def _compute_loss(
         self,

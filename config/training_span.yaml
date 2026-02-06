@@ -9,10 +9,6 @@ trainer:
   loss_type: "mse"
 
 model:
-  encoder:
-    model_name: "bert-base-uncased"
-    freeze: true
-    add_special_tokens: true
   label_mapper:
     logit_value: 1.0
     epsilon: 0.1

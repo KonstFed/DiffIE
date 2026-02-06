@@ -38,7 +38,7 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         denoiser: SpanDenoiser,
         scheduler: LinearScheduler,
         label_mapper: ContinuousSpanMapper,
-        encoder: BERTEncoder,
+        encoder: BERTEncoder | None = None,
     ):
         super().__init__()
         self.denoiser = denoiser
@@ -220,13 +220,13 @@ class SpanDenoiserConfig(BaseModel):
 class SpanDiffusionModelConfig(BaseModel):
     """Config for SpanDiffusionModel (encoder + label_mapper + scheduler + denoiser)."""
 
-    encoder: BERTEncoderConfig
+    encoder: BERTEncoderConfig | None = None
     label_mapper: ContinuousSpanMapperConfig
     scheduler: LinearSchedulerConfig
     denoiser: SpanDenoiserConfig
 
     def create(self) -> SpanDiffusionModel:
-        encoder_instance = self.encoder.create()
+        encoder_instance = self.encoder.create() if self.encoder is not None else None
         label_mapper_instance = self.label_mapper.create()
         scheduler_instance = self.scheduler.create()
         denoiser_instance = self.denoiser.create()
