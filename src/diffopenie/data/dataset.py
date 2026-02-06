@@ -139,6 +139,7 @@ class SpanLSOIEDataset(CachedDataset):
 
 
     def _encode_tokens(self, batch_size: int = 32) -> None:
+        logger.info("Precomputing token embeddings")
         # ugly precomputing of token embeddings
         self.encoder.eval()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
