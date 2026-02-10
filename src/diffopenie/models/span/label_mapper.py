@@ -1,8 +1,92 @@
 """Simplex mapper based on https://arxiv.org/pdf/2309.02530"""
+from abc import ABC, abstractmethod
 import torch
 
 
-class ContinuousSpanMapper:
+class BaseMapper(ABC):
+    @abstractmethod
+    def get_random(
+        self,
+        n: int,
+        sentence_len: torch.LongTensor,
+        device: torch.device | None = None,
+    ) -> torch.FloatTensor:
+        """Get random x_t for inference,
+
+        Args:
+            n (int): number of samples
+            sentence_len (torch.LongTensor): tensor of sentence lengths with size [n]
+
+        Returns:
+            torch.FloatTensor: x_t
+        """
+
+    def forward(self, labels: torch.LongTensor, sentence_len: torch.LongTensor) -> torch.FloatTensor:
+        """Map triplet into continuous (logit) space with label smoothing.
+
+        Args:
+            labels (torch.LongTensor): spans with size [n, 6]
+            sentence_len (torch.LongTensor): tensor of sentence lengths with size [n]
+
+        Returns:
+            torch.FloatTensor: x_t
+        """
+
+    def reverse(self, x: torch.FloatTensor, sentence_len: torch.LongTensor) -> torch.LongTensor:
+        """Reverse from continuous to discrete spans.
+
+        Args:
+            x (torch.FloatTensor): [n, ...] continuous vector of n samples
+            sentence_len (torch.LongTensor): sentence lengths for all samples with size [n]
+
+        Returns:
+            torch.LongTensor: [n, 6] triplets spans
+        """
+
+class DiffusionNERMapper(BaseMapper):
+    """Map triplets in DiffusionNER style, with index normalization with sentence length.
+    """
+    def get_random(self, n: int, sentence_len: torch.LongTensor) -> torch.FloatTensor:
+        """Get random x_t for inference.
+
+        Args:
+            n (int): number of samples
+            sentence_len (torch.LongTensor): tensor of sentence lengths with size [n]
+
+        Returns:
+            torch.FloatTensor: of size [n, 6]
+        """
+        # maybe normal?
+        # or sample only correct spans?
+        return torch.rand(n, 6, sentence_len.max().item() - 1)
+
+    def forward(self, labels: torch.LongTensor, sentence_len: torch.LongTensor) -> torch.FloatTensor:
+        """Map triplets into continuous index space
+
+        Args:
+            labels (torch.LongTensor): of size [n, 6] of triple (s_l, s_r, o_l, o_r, p_l, p_r)
+            sentence_len (torch.LongTensor): of size [n]
+
+        Returns:
+            torch.FloatTensor: of size [n, 6]
+        """
+        return labels / sentence_len.unsqueeze(1)
+
+    def reverse(self, x: torch.FloatTensor, sentence_len: torch.LongTensor) -> torch.LongTensor:
+        """Reverse from continuous index space to discrete spans.
+
+        Args:
+            x (torch.FloatTensor): of size [n, 6]
+            sentence_len (torch.LongTensor): of size [n]
+
+        Returns:
+            torch.LongTensor: of size [n, 6]
+        """
+        labels = x * sentence_len.unsqueeze(1)
+        return labels.round().int().clamp(0, sentence_len.unsqueeze(1) - 1)
+
+
+class ContinuousSpanMapper(BaseMapper):
     """Map triplets into continuous space.
 
     Label smoothing (as in the paper): given one-hot x_0 on the simplex boundary,
@@ -19,12 +103,10 @@ class ContinuousSpanMapper:
         self,
         n: int,
         sentence_len: torch.LongTensor,
-        device: torch.device | None = None,
     ) -> torch.FloatTensor:
         """Random x_t for inference. sentence_len [B]; output [n, 6, L_max-1]."""
         L_max = max(int(sentence_len.max().item()), 2)
-        dev = device if device is not None else sentence_len.device
-        return torch.randn(n, 6, L_max - 1, device=dev)
+        return torch.randn(n, 6, L_max - 1)
 
     @staticmethod
     def logits_to_probs(
@@ -89,7 +171,7 @@ class ContinuousSpanMapper:
         out[~out_valid] = 0.0
         return out * out_valid.float()
 
-    def reverse_index(
+    def reverse(
         self,
         logits: torch.FloatTensor,
         sentence_len: torch.LongTensor,
@@ -126,3 +208,5 @@ class ContinuousSpanMapper:
         len_flat = sentence_len.unsqueeze(1).expand(-1, n_elems).reshape(-1)
         dist = self.forward_index(flat, len_flat)
         return dist.reshape(B, n_elems * dist.shape[1])
+
+

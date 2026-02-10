@@ -1,12 +1,10 @@
 from torch import nn
 import torch
-from pydantic import BaseModel
 
 from diffopenie.models.base_model import BaseTripletModel
-from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
+from diffopenie.models.encoder import BERTEncoder
 from diffopenie.models.span.label_mapper import ContinuousSpanMapper
-from diffopenie.models.span.denoiser import SpanDenoiser
-from diffopenie.diffusion.scheduler import LinearScheduler, LinearSchedulerConfig
+from diffopenie.diffusion.scheduler import LinearScheduler, BaseDenoiser
 
 def spans_to_token_labels(
     spans: torch.LongTensor, seq_len: int
@@ -35,7 +33,7 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
 
     def __init__(
         self,
-        denoiser: SpanDenoiser,
+        denoiser: BaseDenoiser,
         scheduler: LinearScheduler,
         label_mapper: ContinuousSpanMapper,
         encoder: BERTEncoder | None = None,
@@ -124,7 +122,7 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         for t_step in range(self.scheduler.num_steps - 1, -1, -1):
             t = torch.full((B,), t_step, dtype=torch.long, device=device)
             x_t = self.scheduler.p_sample(self.denoiser, x_t, t, condition)
-        pred_spans = self.label_mapper.reverse_index(x_t, seq_len)
+        pred_spans = self.label_mapper.reverse(x_t, seq_len)
         return pred_spans
 
     def noise(self, x_0: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -176,63 +174,3 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
             Token embeddings [B, L, bert_dim]
         """
         return self.encoder(token_ids, attention_mask)
-
-
-# ----------------------- Pydantic configs -------------------------------------
-
-
-class ContinuousSpanMapperConfig(BaseModel):
-    """Config for ContinuousSpanMapper (span indices -> logits)."""
-
-    logit_value: float = 1.0
-    epsilon: float = 0.01  # label smoothing: x̃_0 = (1-ε)*x_0 + ε/d
-
-    def create(self) -> ContinuousSpanMapper:
-        return ContinuousSpanMapper(
-            logit_value=self.logit_value,
-            epsilon=self.epsilon,
-        )
-
-
-class SpanDenoiserConfig(BaseModel):
-    """Config for SpanDenoiser (slot decoder + pointer)."""
-
-    bert_dim: int = 768
-    num_steps: int = 1000
-    d_model: int | None = None
-    n_heads: int = 8
-    n_layers: int = 1
-    d_ff: int | None = None
-    dropout: float = 0.1
-
-    def create(self) -> SpanDenoiser:
-        return SpanDenoiser(
-            bert_dim=self.bert_dim,
-            num_steps=self.num_steps,
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-            n_layers=self.n_layers,
-            d_ff=self.d_ff,
-            dropout=self.dropout,
-        )
-
-
-class SpanDiffusionModelConfig(BaseModel):
-    """Config for SpanDiffusionModel (encoder + label_mapper + scheduler + denoiser)."""
-
-    encoder: BERTEncoderConfig | None = None
-    label_mapper: ContinuousSpanMapperConfig
-    scheduler: LinearSchedulerConfig
-    denoiser: SpanDenoiserConfig
-
-    def create(self) -> SpanDiffusionModel:
-        encoder_instance = self.encoder.create() if self.encoder is not None else None
-        label_mapper_instance = self.label_mapper.create()
-        scheduler_instance = self.scheduler.create()
-        denoiser_instance = self.denoiser.create()
-        return SpanDiffusionModel(
-            denoiser=denoiser_instance,
-            scheduler=scheduler_instance,
-            label_mapper=label_mapper_instance,
-            encoder=encoder_instance,
-        )

@@ -2,6 +2,7 @@ from torch import nn
 import torch
 
 from diffopenie.models.span.label_mapper import ContinuousSpanMapper
+from diffopenie.diffusion.scheduler import BaseDenoiser
 
 NUM_SLOTS = 6  # sub_l, sub_r, rel_l, rel_r, obj_l, obj_r
 
@@ -77,7 +78,7 @@ class SlotDecoderBlock(nn.Module):
         return Q
 
 
-class SpanDenoiser(nn.Module):
+class SlotDenoiser(nn.Module, BaseDenoiser):
     """
     One-step denoiser for simplex diffusion over 6 slot PMFs π_t ∈ R^{6×L}.
 
@@ -199,3 +200,4 @@ class SpanDenoiser(nn.Module):
             pad_mask_first = ~attn_mask[:, :-1].bool()  # [B, L-1], True = pad
             logits = logits.masked_fill(pad_mask_first.unsqueeze(1), -1e9)
         return logits
+

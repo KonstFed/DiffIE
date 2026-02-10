@@ -1,7 +1,7 @@
 from diffopenie.models.span.span_model import (
     SpanDiffusionModel,
-    SpanDiffusionModelConfig,
 )
+from diffopenie.models.span.configs import DenoiserConfig, SpanDiffusionModelConfig
 
 
-__all__ = ["SpanDiffusionModel", "SpanDiffusionModelConfig"]
+__all__ = ["SpanDiffusionModel", "SpanDiffusionModelConfig", "DenoiserConfig"]

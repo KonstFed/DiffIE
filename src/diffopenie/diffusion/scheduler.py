@@ -1,7 +1,16 @@
+from typing import Any
+from abc import ABC, abstractmethod
+
 import torch
 import torch.nn as nn
 from pydantic import BaseModel
 
+
+class BaseDenoiser(ABC):
+    @abstractmethod
+    def forward(self, x_t: torch.FloatTensor, t: torch.LongTensor, condition: Any) -> torch.FloatTensor:
+        """Forward pass of the denoiser."""
+        pass
 
 class LinearScheduler(nn.Module):
     """
