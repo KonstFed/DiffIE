@@ -6,13 +6,10 @@ trainer:
   learning_rate: 1e-4
   weight_decay: 0.01
   max_grad_norm: 1.0
-  loss_type: "mse"
 
 model:
   label_mapper:
-    type: "continuous"
-    logit_value: 1.0
-    epsilon: 0.1
+    type: "float_index"
   scheduler:
     num_steps: 1000
     beta_start: 0.0001
@@ -22,13 +19,11 @@ model:
     freeze: true
     add_special_tokens: true
   denoiser:
-    bert_dim: 768
-    num_steps: 1000
-    d_model: 1024
-    n_heads: 8
-    n_layers: 10
-    d_ff: 2048
-    dropout: 0.1
+    type: "diffusion_ner"
+    embedder_dim: 768
+    span_dim: 1000
+    label_mapper:
+      type: "float_index"
 
 data:
   dataset:

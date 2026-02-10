@@ -43,7 +43,7 @@ class BaseMapper(ABC):
             torch.LongTensor: [n, 6] triplets spans
         """
 
-class DiffusionNERMapper(BaseMapper):
+class FloatIndexMapper(BaseMapper):
     """Map triplets in DiffusionNER style, with index normalization with sentence length.
     """
     def get_random(self, n: int, sentence_len: torch.LongTensor) -> torch.FloatTensor:
@@ -83,7 +83,9 @@ class DiffusionNERMapper(BaseMapper):
             torch.LongTensor: of size [n, 6]
         """
         labels = x * sentence_len.unsqueeze(1)
-        return labels.round().int().clamp(0, sentence_len.unsqueeze(1) - 1)
+        labels = labels.round().int()
+        labels = labels.clamp(torch.zeros_like(labels), sentence_len.unsqueeze(1) - 1)
+        return labels
 
 
 class ContinuousSpanMapper(BaseMapper):

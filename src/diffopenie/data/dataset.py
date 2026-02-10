@@ -111,7 +111,7 @@ class SpanLSOIEDataset:
         self.split = split
 
         dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)[split]
-        dataset = pd.DataFrame(dataset)
+        dataset = pd.DataFrame(dataset).iloc[:50]
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
         self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True)
 

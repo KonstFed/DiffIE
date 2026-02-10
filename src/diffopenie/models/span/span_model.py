@@ -118,7 +118,7 @@ class SpanDiffusionModel(nn.Module, BaseTripletModel):
         condition = (token_embeddings, attn_mask)
         seq_len = attention_mask.sum(dim=1).clamp(min=2).long()
 
-        x_t = self.label_mapper.get_random(B, seq_len, device=device)
+        x_t = self.label_mapper.get_random(B, seq_len).to(device)
         for t_step in range(self.scheduler.num_steps - 1, -1, -1):
             t = torch.full((B,), t_step, dtype=torch.long, device=device)
             x_t = self.scheduler.p_sample(self.denoiser, x_t, t, condition)

@@ -1,16 +1,65 @@
-from pydantic import BaseModel
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field
+
 from diffopenie.models.encoder import BERTEncoderConfig
-from diffopenie.models.span.label_mapper import ContinuousSpanMapper
+from diffopenie.models.span.label_mapper import ContinuousSpanMapper, FloatIndexMapper
 from diffopenie.diffusion.scheduler import LinearSchedulerConfig
 from diffopenie.models.span.span_model import SpanDiffusionModel
 from diffopenie.models.span.slot_denoiser import SlotDenoiser
+from diffopenie.models.span.diffusionNER import DiffusionNERDenoiser
 
 
+# mappers
+
+
+class FloatIndexMapperConfig(BaseModel):
+    """Config for FloatIndexMapper (span indices -> float indices)."""
+
+    type: Literal["float_index"] = "float_index"
+
+    def create(self) -> FloatIndexMapper:
+        return FloatIndexMapper()
+
+
+class ContinuousSpanMapperConfig(BaseModel):
+    """Config for ContinuousSpanMapper (span indices -> logits)."""
+
+    type: Literal["continuous"] = "continuous"
+
+    logit_value: float = 1.0
+    epsilon: float = 0.01  # label smoothing: x̃_0 = (1-ε)*x_0 + ε/d
+
+    def create(self) -> ContinuousSpanMapper:
+        return ContinuousSpanMapper(
+            logit_value=self.logit_value,
+            epsilon=self.epsilon,
+        )
+
+
+LabelMapperConfig = FloatIndexMapperConfig | ContinuousSpanMapperConfig
+
+
+class DiffusionNERDenoiserConfig(BaseModel):
+    """Config for DiffusionNERDenoiser (diffusion NER denoiser)."""
+
+    type: Literal["diffusion_ner"] = "diffusion_ner"
+    label_mapper: FloatIndexMapperConfig
+    embedder_dim: int = 768
+    span_dim: int = 128
+
+    def create(self) -> DiffusionNERDenoiser:
+        return DiffusionNERDenoiser(
+            label_mapper=self.label_mapper.create(),
+            embedder_dim=self.embedder_dim,
+            span_dim=self.span_dim,
+        )
 
 
 class SlotDenoiserConfig(BaseModel):
     """Config for SpanDenoiser (slot decoder + pointer)."""
 
+    type: Literal["slot"] = "slot"
     bert_dim: int = 768
     num_steps: int = 1000
     d_model: int | None = None
@@ -30,26 +79,20 @@ class SlotDenoiserConfig(BaseModel):
             dropout=self.dropout,
         )
 
-DenoiserConfig = SlotDenoiserConfig
 
+DenoiserConfig = Annotated[
+    SlotDenoiserConfig | DiffusionNERDenoiserConfig,
+    Field(discriminator="type"),
+]
 
-class ContinuousSpanMapperConfig(BaseModel):
-    """Config for ContinuousSpanMapper (span indices -> logits)."""
+# model
 
-    logit_value: float = 1.0
-    epsilon: float = 0.01  # label smoothing: x̃_0 = (1-ε)*x_0 + ε/d
-
-    def create(self) -> ContinuousSpanMapper:
-        return ContinuousSpanMapper(
-            logit_value=self.logit_value,
-            epsilon=self.epsilon,
-        )
 
 class SpanDiffusionModelConfig(BaseModel):
     """Config for SpanDiffusionModel (encoder + label_mapper + scheduler + denoiser)."""
 
     encoder: BERTEncoderConfig | None = None
-    label_mapper: ContinuousSpanMapperConfig
+    label_mapper: LabelMapperConfig
     scheduler: LinearSchedulerConfig
     denoiser: DenoiserConfig
 

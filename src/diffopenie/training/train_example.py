@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 
 from diffopenie.utils import load_config
 from diffopenie.training.sequence_trainer import DiffusionTrainerConfig
-from diffopenie.training.span_trainer import SpanDiffusionTrainerConfig
+# from diffopenie.training.span_trainer import SpanDiffusionTrainerConfig
+from diffopenie.training.span_trainer_simple import SimpleSpanTrainerConfig
 from diffopenie.models.span import SpanDiffusionModelConfig
 from diffopenie.models.sequence import DiffusionSequenceLabelerConfig
 from diffopenie.data.dataset import SequenceLSOEIDatasetConfig, SpanLSOEIDatasetConfig
@@ -37,7 +38,7 @@ class TrainingConfig(BaseModel):
     """
 
     trainer: Annotated[
-        DiffusionTrainerConfig | SpanDiffusionTrainerConfig,
+        DiffusionTrainerConfig, SimpleSpanTrainerConfig,
         Field(discriminator="type"),
     ]
     model: DiffusionSequenceLabelerConfig | SpanDiffusionModelConfig
