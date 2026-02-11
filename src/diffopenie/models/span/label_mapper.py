@@ -58,7 +58,7 @@ class FloatIndexMapper(BaseMapper):
         """
         # maybe normal?
         # or sample only correct spans?
-        return torch.rand(n, 6, sentence_len.max().item() - 1)
+        return torch.rand(n, 6)
 
     def forward(self, labels: torch.LongTensor, sentence_len: torch.LongTensor) -> torch.FloatTensor:
         """Map triplets into continuous index space

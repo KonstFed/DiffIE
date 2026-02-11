@@ -45,5 +45,5 @@ num_epochs: 1000
 log_interval: 500
 save_path: checkpoints
 save_interval: 5
-val_full_interval: 20
+val_full_interval: 5
 num_classes: 4
