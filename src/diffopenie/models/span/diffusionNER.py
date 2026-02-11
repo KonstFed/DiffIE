@@ -58,15 +58,16 @@ class SpanBlock(nn.Module):
 
 
 class DiffusionNERDenoiser(nn.Module, BaseDenoiser):
-    def __init__(self, label_mapper: FloatIndexMapper, embedder_dim: int, span_dim: int,):
+    def __init__(self, label_mapper: FloatIndexMapper, embedder_dim: int, span_dim: int, num_steps: int,):
         super().__init__()
         self.label_mapper = label_mapper
         self.subject_span_block = SpanBlock(embedder_dim, span_dim)
         self.object_span_block = SpanBlock(embedder_dim, span_dim)
         self.predicate_span_block = SpanBlock(embedder_dim, span_dim)
+        self.time_embedding = nn.Embedding(num_steps, span_dim)
 
         self.out = nn.Sequential(
-            nn.Linear(3 * span_dim, 3 * span_dim),
+            nn.Linear(4 * span_dim, 3 * span_dim),
             nn.ReLU(),
             nn.Linear(3 * span_dim, 6),
         )
@@ -94,5 +95,6 @@ class DiffusionNERDenoiser(nn.Module, BaseDenoiser):
         s_span = self.subject_span_block(s_l, s_r, token_embeddings)
         o_span = self.object_span_block(o_l, o_r, token_embeddings)
         p_span = self.predicate_span_block(p_l, p_r, token_embeddings)
-        x = torch.cat([s_span, o_span, p_span], dim=1)
+        time_emb = self.time_embedding(t)
+        x = torch.cat([s_span, o_span, p_span, time_emb], dim=1)
         return self.out(x)

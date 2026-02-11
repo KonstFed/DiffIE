@@ -47,12 +47,14 @@ class DiffusionNERDenoiserConfig(BaseModel):
     label_mapper: FloatIndexMapperConfig
     embedder_dim: int = 768
     span_dim: int = 128
+    num_steps: int = 1000
 
     def create(self) -> DiffusionNERDenoiser:
         return DiffusionNERDenoiser(
             label_mapper=self.label_mapper.create(),
             embedder_dim=self.embedder_dim,
             span_dim=self.span_dim,
+            num_steps=self.num_steps,
         )
 
 
