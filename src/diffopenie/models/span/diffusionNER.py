@@ -6,7 +6,8 @@ from diffopenie.diffusion.scheduler import BaseDenoiser
 from diffopenie.models.span.label_mapper import FloatIndexMapper
 
 
-class SpanBlock(nn.Module):
+class SpanQueryBlock(nn.Module):
+    """Use mean of span"""
     def __init__(self, token_dim: int, span_dim: int, dropout: float = 0.1):
         super().__init__()
         self.lin = nn.Sequential(
@@ -54,22 +55,65 @@ class SpanBlock(nn.Module):
         span_mean = span_sum / lengths  # [B, D]
 
         span_mean = self.lin(span_mean)
+
         return span_mean
 
 
+class SpanTokenCrossAttention(nn.Module):
+    """Shared cross-attention: query=span [B,D], key/value=token_embeddings [B,L,D]."""
+
+    def __init__(self, embed_dim: int, num_heads: int = 8, dropout: float = 0.1):
+        super().__init__()
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=False,
+        )
+        self.norm = nn.LayerNorm(embed_dim)
+
+    def forward(
+        self,
+        span: torch.Tensor,
+        token_embeddings: torch.Tensor,
+        key_padding_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        # span: [B, D], token_embeddings: [B, L, D]
+        # MultiheadAttention expects (L, B, D)
+        q = span.unsqueeze(0)  # [1, B, D]
+        kv = token_embeddings.transpose(0, 1)  # [L, B, D]
+        out, _ = self.cross_attn(
+            q, kv, kv, key_padding_mask=key_padding_mask, need_weights=False
+        )
+        out = out.squeeze(0)  # [B, D]
+        return span + self.norm(out) # same [B, D]
+
+
 class DiffusionNERDenoiser(nn.Module, BaseDenoiser):
-    def __init__(self, label_mapper: FloatIndexMapper, embedder_dim: int, span_dim: int, num_steps: int,):
+    def __init__(
+        self,
+        label_mapper: FloatIndexMapper,
+        embedder_dim: int,
+        num_steps: int,
+        cross_attn_heads: int = 8,
+        cross_attn_dropout: float = 0.1,
+    ):
         super().__init__()
         self.label_mapper = label_mapper
-        self.subject_span_block = SpanBlock(embedder_dim, span_dim)
-        self.object_span_block = SpanBlock(embedder_dim, span_dim)
-        self.predicate_span_block = SpanBlock(embedder_dim, span_dim)
-        self.time_embedding = nn.Embedding(num_steps, span_dim)
+        self.subject_span_block = SpanQueryBlock(embedder_dim, embedder_dim)
+        self.object_span_block = SpanQueryBlock(embedder_dim, embedder_dim)
+        self.predicate_span_block = SpanQueryBlock(embedder_dim, embedder_dim)
+        self.span_token_cross_attn = SpanTokenCrossAttention(
+            embed_dim=embedder_dim,
+            num_heads=cross_attn_heads,
+            dropout=cross_attn_dropout,
+        )
+        self.time_embedding = nn.Embedding(num_steps, embedder_dim)
 
         self.out = nn.Sequential(
-            nn.Linear(4 * span_dim, 3 * span_dim),
+            nn.Linear(4 * embedder_dim, 3 * embedder_dim),
             nn.ReLU(),
-            nn.Linear(3 * span_dim, 6),
+            nn.Linear(3 * embedder_dim, 6),
         )
 
     def forward(
@@ -89,12 +133,21 @@ class DiffusionNERDenoiser(nn.Module, BaseDenoiser):
             torch.FloatTensor: _description_
         """
         token_embeddings, attn_mask = condition
+        # key_padding_mask: True = ignore (padding)
+        key_padding_mask = (attn_mask == 0) if attn_mask is not None else None
+
         sentence_len = attn_mask.sum(dim=1).long()  # [B]
         spans = self.label_mapper.reverse(x_t, sentence_len)  # [B, 6]
         (s_l, s_r, o_l, o_r, p_l, p_r) = spans.unbind(dim=1)
         s_span = self.subject_span_block(s_l, s_r, token_embeddings)
         o_span = self.object_span_block(o_l, o_r, token_embeddings)
         p_span = self.predicate_span_block(p_l, p_r, token_embeddings)
+
+        # Shared crossspan + -attention: each tends to token_embeddings
+        s_span = self.span_token_cross_attn(s_span, token_embeddings, key_padding_mask)
+        o_span = self.span_token_cross_attn(o_span, token_embeddings, key_padding_mask)
+        p_span = self.span_token_cross_attn(p_span, token_embeddings, key_padding_mask)
+
         time_emb = self.time_embedding(t)
         x = torch.cat([s_span, o_span, p_span, time_emb], dim=1)
         return self.out(x)

@@ -48,13 +48,16 @@ class DiffusionNERDenoiserConfig(BaseModel):
     embedder_dim: int = 768
     span_dim: int = 128
     num_steps: int = 1000
+    cross_attn_heads: int = 8
+    cross_attn_dropout: float = 0.1
 
     def create(self) -> DiffusionNERDenoiser:
         return DiffusionNERDenoiser(
             label_mapper=self.label_mapper.create(),
             embedder_dim=self.embedder_dim,
-            span_dim=self.span_dim,
             num_steps=self.num_steps,
+            cross_attn_heads=self.cross_attn_heads,
+            cross_attn_dropout=self.cross_attn_dropout,
         )
 
 

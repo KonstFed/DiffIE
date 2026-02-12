@@ -11,7 +11,7 @@ model:
   label_mapper:
     type: "float_index"
   scheduler:
-    num_steps: 1000
+    num_steps: 50
     beta_start: 0.0001
     beta_end: 0.02
   encoder:
@@ -21,7 +21,7 @@ model:
   denoiser:
     type: "diffusion_ner"
     embedder_dim: 768
-    span_dim: 1000
+    num_steps: 50
     label_mapper:
       type: "float_index"
 
