@@ -22,6 +22,7 @@ model:
     type: "diffusion_ner"
     embedder_dim: 768
     num_steps: 50
+    self_attn_layers: 2
     label_mapper:
       type: "float_index"
 
