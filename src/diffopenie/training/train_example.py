@@ -1,16 +1,17 @@
 """Training example with configuration and CLI for diffusion-based OpenIE model."""
 
 import argparse
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Union
 from torch.utils.data import DataLoader
 from pydantic import BaseModel, Field
 
 from diffopenie.utils import load_config
 from diffopenie.training.sequence_trainer import DiffusionTrainerConfig
-# from diffopenie.training.span_trainer import SpanDiffusionTrainerConfig
 from diffopenie.training.span_trainer_simple import SimpleSpanTrainerConfig
+from diffopenie.training.detie_trainer import DetIETrainerConfig
 from diffopenie.models.span import SpanDiffusionModelConfig
 from diffopenie.models.sequence import DiffusionSequenceLabelerConfig
+from diffopenie.models.detie import DetIEModelConfig
 from diffopenie.data.dataset import SequenceLSOEIDatasetConfig, SpanLSOEIDatasetConfig
 from diffopenie.data.collator import SequenceCollator, SpanCollator
 
@@ -33,15 +34,23 @@ class TrainingConfig(BaseModel):
 
     Contains:
     - trainer_config: Configuration for the trainer (optimizer, device, etc.)
-    - model_config: Configuration for the diffusion model (encoder, denoiser, scheduler, etc.)
+    - model_config: Configuration for the model (encoder, denoiser, scheduler, etc.)
     - data_config: Configuration for data loading (dataset, dataloader settings)
     """
 
     trainer: Annotated[
-        DiffusionTrainerConfig, SimpleSpanTrainerConfig,
+        Union[
+            DiffusionTrainerConfig,
+            SimpleSpanTrainerConfig,
+            DetIETrainerConfig,
+        ],
         Field(discriminator="type"),
     ]
-    model: DiffusionSequenceLabelerConfig | SpanDiffusionModelConfig
+    model: (
+        DiffusionSequenceLabelerConfig
+        | SpanDiffusionModelConfig
+        | DetIEModelConfig
+    )
     data: DataConfig
 
     # Training hyperparameters
