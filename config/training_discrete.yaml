@@ -1,0 +1,55 @@
+# Discrete D3PM training with mask_absorbing kernel (x_T = MASK everywhere).
+# Uses sequence dataset: token_ids, attention_mask, label_indices (0=O, 1=subj, 2=obj, 3=pred).
+# num_states=5 with mask_state_id=4 for padding/MASK.
+
+trainer:
+  type: "discrete_trainer"
+  device: null
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+
+model:
+  encoder:
+    model_name: "bert-base-uncased"
+    freeze: true
+    add_special_tokens: true
+  scheduler:
+    num_states: 5   # O, subject, object, predicate, MASK
+    num_steps: 100
+    kernel: "mask_absorbing"
+    mask_state_id: 4
+    device: "cpu"    # overridden by trainer device at runtime
+    dtype: "float32"
+  denoiser:
+    num_states: 5
+    model_dim: 256
+    ctx_dim: 768     # BERT hidden size
+    num_layers: 4
+    num_heads: 4
+    dropout: 0.0
+    fuse: "sum"
+  temperature: 1.0
+  topk: null
+
+data:
+  dataset:
+    type: "sequence"
+    tokenizer_name: "bert-base-uncased"
+    filter_spans: true
+    use_cache: true
+    encoder:
+      model_name: "bert-base-uncased"
+      freeze: true
+      add_special_tokens: true
+  batch_size: 32
+  num_workers: 4
+  pad_token_id: 0
+  pad_label_idx: 0
+
+num_epochs: 100
+log_interval: 100
+save_path: checkpoints_discrete
+save_interval: 5
+val_full_interval: 5
+num_classes: 4

@@ -9,9 +9,11 @@ from diffopenie.utils import load_config
 from diffopenie.training.sequence_trainer import DiffusionTrainerConfig
 from diffopenie.training.span_trainer_simple import SimpleSpanTrainerConfig
 from diffopenie.training.detie_trainer import DetIETrainerConfig
+from diffopenie.models.discrete.discrete_trainer import DiscreteTrainerConfig
 from diffopenie.models.span import SpanDiffusionModelConfig
 from diffopenie.models.sequence import DiffusionSequenceLabelerConfig
 from diffopenie.models.detie import DetIEModelConfig
+from diffopenie.models.discrete.discrete_model import DiscreteModelConfig
 from diffopenie.data.dataset import SequenceLSOEIDatasetConfig, SpanLSOEIDatasetConfig
 from diffopenie.data.collator import SequenceCollator, SpanCollator
 
@@ -43,6 +45,7 @@ class TrainingConfig(BaseModel):
             DiffusionTrainerConfig,
             SimpleSpanTrainerConfig,
             DetIETrainerConfig,
+            DiscreteTrainerConfig,
         ],
         Field(discriminator="type"),
     ]
@@ -50,6 +53,7 @@ class TrainingConfig(BaseModel):
         DiffusionSequenceLabelerConfig
         | SpanDiffusionModelConfig
         | DetIEModelConfig
+        | DiscreteModelConfig
     )
     data: DataConfig
 

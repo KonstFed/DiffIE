@@ -1,5 +1,8 @@
 import math
+from typing import Literal
+
 import torch
+from pydantic import BaseModel
 
 # ------------------------------------------------------------
 # Utilities
@@ -81,7 +84,7 @@ class CosineBetaSchedule:
 # ------------------------------------------------------------
 
 
-class DiscreteDiffusionMarkovSchedule:
+class D3PMSchedule:
     """
     Discretized Denoising Diffusion Probabilistic Model (D3PM) schedule for SMALL state spaces.
 
@@ -192,6 +195,9 @@ class DiscreteDiffusionMarkovSchedule:
             cur = cur @ Q[t]
             bar.append(cur)
         return torch.stack(bar, dim=0)
+
+    def sample_t(self, B: int) -> torch.LongTensor:
+        return torch.randint(1, self.num_steps + 1, size=(B,), device=self.device, dtype=torch.long)
 
     # ----------------------------
     # Forward: q(x_t | x_0)
@@ -327,4 +333,48 @@ class DiscreteDiffusionMarkovSchedule:
         """
         probs = self._reverse_distribution(x_t, t, p_x0_given_xt)
         return sample_categorical(probs)
+
+
+
+class D3PMScheduleConfig(BaseModel):
+    """
+    Configuration model for D3PMSchedule.
+    Acts as a factory for creating D3PMSchedule instances.
+    """
+
+    num_states: int = 5
+    num_steps: int
+    kernel: str = "mask_absorbing"  # "uniform" or "mask_absorbing"
+    mask_state_id: int = 4 # due to SequenceLSOEIDataset
+    device: str = "cpu"
+    dtype: Literal["float32", "float16", "bfloat16"] = "float32"
+
+    def create(self) -> D3PMSchedule:
+        """
+        Factory method to create a D3PMSchedule instance.
+        Betas are computed via CosineBetaSchedule when not provided.
+
+        Returns:
+            Instance of D3PMSchedule
+
+        Example:
+            config = D3PMScheduleConfig(
+                num_states=256, num_steps=1000, kernel="uniform"
+            )
+            schedule = config.create()
+        """
+        dtype_map = {
+            "float32": torch.float32,
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+        }
+        return D3PMSchedule(
+            num_states=self.num_states,
+            num_steps=self.num_steps,
+            kernel=self.kernel,
+            mask_state_id=self.mask_state_id,
+            betas=None,
+            device=self.device,
+            dtype=dtype_map[self.dtype],
+        )
 
