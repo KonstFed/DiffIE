@@ -191,7 +191,7 @@ class DiscreteModel(nn.Module, BaseTripletModel):
                 logits = _topk_filter_logits(logits, self.topk)
 
             p_x0 = torch.softmax(logits, dim=-1)
-            x_t = self.sample_reverse(x_t, t, p_x0)
+            x_t = self.sample_reverse(x_t, t, p_x0).to(self.device)
 
         return x_t
 

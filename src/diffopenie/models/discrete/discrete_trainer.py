@@ -16,6 +16,7 @@ class DiscreteTrainer(BaseTrainer):
         max_grad_norm: float = 1.0,
     ):
         self.model = model.to(device)
+        self.model.scheduler.to(device)
         super().__init__(
             device=device,
             learning_rate=learning_rate,
@@ -36,8 +37,8 @@ class DiscreteTrainer(BaseTrainer):
         labels = batch["label_indices"].to(self.device)
         B, L = token_ids.shape
         token_emb = self.model.encode_tokens(token_ids, attention_mask)
-        t = self.model.scheduler.sample_t(B).to(self.device)
-        x_t = self.model.noise(labels, t).to(self.device)
+        t = self.model.scheduler.sample_t(B)
+        x_t = self.model.noise(labels, t)
         logits = self.model.denoiser(x_t, t, token_emb, attention_mask)
         target = labels.clone()
 

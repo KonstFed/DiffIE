@@ -196,6 +196,18 @@ class D3PMSchedule:
             bar.append(cur)
         return torch.stack(bar, dim=0)
 
+    def to(self, device: str | torch.device) -> "D3PMSchedule":
+        """Move scheduler tensors to the given device (e.g. match model device)."""
+        if isinstance(device, torch.device):
+            device_str = device.type
+        else:
+            device_str = str(device)
+        self.device = device_str
+        self.betas = self.betas.to(device_str, dtype=self.dtype)
+        self.forward_transition = self.forward_transition.to(device_str, dtype=self.dtype)
+        self.forward_product = self.forward_product.to(device_str, dtype=self.dtype)
+        return self
+
     def sample_t(self, B: int) -> torch.LongTensor:
         return torch.randint(1, self.num_steps + 1, size=(B,), device=self.device, dtype=torch.long)
 
