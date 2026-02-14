@@ -1,5 +1,5 @@
+import math
 import torch
-from dataclasses import dataclass
 
 # ------------------------------------------------------------
 # Utilities
@@ -36,10 +36,51 @@ def sample_categorical(probs: torch.Tensor) -> torch.LongTensor:
 
 
 # ------------------------------------------------------------
+# Beta schedules (for use with DiscreteDiffusionMarkovSchedule)
+# ------------------------------------------------------------
+
+
+class CosineBetaSchedule:
+    """
+    Cosine noise schedule for discrete diffusion (Nichol & Dhariwal style).
+
+    Produces per-step betas from:
+        alpha_bar(t) = cos^2((t + s) / (1 + s) * pi/2)
+    with t in [0, 1], then beta_t = 1 - (alpha_bar_t / alpha_bar_{t-1}).
+
+    Returns:
+        betas: (num_steps,) tensor for DiscreteDiffusionMarkovSchedule(..., betas=...).
+    """
+
+    def __init__(
+        self,
+        num_steps: int,
+        s: float = 0.008,
+        device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
+    ):
+        self.num_steps = num_steps
+        self.s = s
+        self.device = device
+        self.dtype = dtype
+
+    def get_betas(self) -> torch.Tensor:
+        steps = torch.arange(1, self.num_steps + 1, device=self.device, dtype=self.dtype)
+        t = steps / self.num_steps
+        alpha_bar = torch.cos((t + self.s) / (1.0 + self.s) * (math.pi / 2.0)) ** 2
+        alpha_bar_prev = torch.cat(
+            [torch.tensor([1.0], device=self.device, dtype=self.dtype), alpha_bar[:-1]]
+        )
+        alpha = alpha_bar / alpha_bar_prev
+        betas = (1.0 - alpha).clamp(1e-6, 0.999)
+        return betas
+
+
+# ------------------------------------------------------------
 # D3PM Scheduler (small-K, dense matrices, paper-faithful)
 # ------------------------------------------------------------
 
-@dataclass
+
 class DiscreteDiffusionMarkovSchedule:
     """
     Discretized Denoising Diffusion Probabilistic Model (D3PM) schedule for SMALL state spaces.
@@ -52,20 +93,33 @@ class DiscreteDiffusionMarkovSchedule:
 
     Notes:
     - Time t is 1-indexed in the paper; in code, Q[0] = Q_1 and barQ[0] = I.
+    - Default betas use CosineBetaSchedule when betas=None; pass betas explicitly for linear.
     """
-    num_states: int                     # K
-    num_steps: int                      # T
-    kernel: str = "uniform"             # "uniform" or "mask_absorbing"
-    mask_state_id: int | None = None    # required for "mask_absorbing"
-    betas: torch.Tensor | None = None   # (T,) per-step noise rates β_t
-    device: str = "cpu"
-    dtype: torch.dtype = torch.float32
 
-    def __post_init__(self):
-        if self.betas is None:
-            self.betas = torch.linspace(1e-4, 0.02, self.num_steps, device=self.device, dtype=self.dtype)
+    def __init__(
+        self,
+        num_states: int,
+        num_steps: int,
+        kernel: str = "uniform",
+        mask_state_id: int | None = None,
+        betas: torch.Tensor | None = None,
+        device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
+    ):
+        self.num_states = num_states
+        self.num_steps = num_steps
+        self.kernel = kernel
+        self.mask_state_id = mask_state_id
+        self.device = device
+        self.dtype = dtype
+
+        if betas is None:
+            cosine = CosineBetaSchedule(
+                num_steps=self.num_steps, device=self.device, dtype=self.dtype
+            )
+            self.betas = cosine.get_betas()
         else:
-            self.betas = self.betas.to(self.device, self.dtype)
+            self.betas = betas.to(self.device, self.dtype)
             assert self.betas.shape == (self.num_steps,)
         self.betas = self.betas.clamp(1e-6, 0.999)
 
@@ -75,8 +129,10 @@ class DiscreteDiffusionMarkovSchedule:
             if not (0 <= self.mask_state_id < self.num_states):
                 raise ValueError("mask_state_id must be in [0, num_states)")
 
-        self.forward_transition = self._build_forward_transition_matrices()   # (T, K, K): Q_t
-        self.forward_product = self._build_cumulative_products(self.forward_transition)  # (T+1, K, K): \bar Q_t
+        self.forward_transition = self._build_forward_transition_matrices()  # (T, K, K): Q_t
+        self.forward_product = self._build_cumulative_products(
+            self.forward_transition
+        )  # (T+1, K, K): \bar Q_t
 
     # ----------------------------
     # Kernel construction (Q_t)
