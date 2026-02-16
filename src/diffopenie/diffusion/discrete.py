@@ -1,8 +1,8 @@
 import math
-from typing import Literal
+from typing import Annotated, Literal, Union
 
 import torch
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ------------------------------------------------------------
 # Utilities
@@ -112,6 +112,171 @@ class LinearBetaSchedule:
             device=self.device,
             dtype=self.dtype,
         )
+
+
+def mi_betas_absorbing(
+    num_steps: int,
+    s_T: float = 0.1,                 # final survival prob (not masked) at T
+    mode: str = "linear",             # "linear" or "cosine"
+    device: str | torch.device = "cpu",
+    dtype: torch.dtype = torch.float32,
+    beta_min: float = 1e-8,
+    beta_max: float = 0.2,
+) -> torch.Tensor:
+    """
+    Mutual-information schedule for mask-absorbing D3PM.
+
+    For absorbing masking: I(X0;Xt) = s_t * H(X0), so controlling MI is controlling s_t.
+    We pick a schedule for s_t from 1 -> s_T, then convert to betas:
+        beta_t = 1 - s_t / s_{t-1}
+
+    Returns:
+        betas: (T,) tensor
+    """
+    T = num_steps
+    s_T = float(s_T)
+    assert 0.0 < s_T < 1.0
+
+    # s[0]..s[T]
+    if mode == "linear":
+        s = torch.linspace(1.0, s_T, steps=T + 1, device=device, dtype=dtype)
+    elif mode == "cosine":
+        # smooth decay from 1 -> s_T
+        u = torch.linspace(0.0, 1.0, steps=T + 1, device=device, dtype=dtype)
+        s = s_T + (1.0 - s_T) * torch.cos(u * torch.pi / 2.0) ** 2
+    else:
+        raise ValueError("mode must be 'linear' or 'cosine'")
+
+    # Convert survival schedule to betas
+    # beta_t = 1 - s[t]/s[t-1], for t=1..T
+    betas = 1.0 - (s[1:] / s[:-1]).clamp_min(1e-30)
+
+    # Safety clamps
+    betas = betas.clamp(beta_min, beta_max)
+    return betas
+
+
+class MIBetaSchedule:
+    """
+    Mutual-information schedule for mask-absorbing D3PM.
+
+    Controls survival probability s_t from 1 -> s_T, then converts to betas
+    via beta_t = 1 - s_t / s_{t-1}. Use with kernel='mask_absorbing'.
+
+    Returns:
+        betas: (num_steps,) tensor for D3PMSchedule(..., betas=...).
+    """
+
+    def __init__(
+        self,
+        num_steps: int,
+        s_T: float = 0.1,
+        mode: str = "linear",
+        device: str | torch.device = "cpu",
+        dtype: torch.dtype = torch.float32,
+        beta_min: float = 1e-8,
+        beta_max: float = 0.2,
+    ):
+        self.num_steps = num_steps
+        self.s_T = s_T
+        self.mode = mode
+        self.device = device
+        self.dtype = dtype
+        self.beta_min = beta_min
+        self.beta_max = beta_max
+
+    def get_betas(self) -> torch.Tensor:
+        return mi_betas_absorbing(
+            num_steps=self.num_steps,
+            s_T=self.s_T,
+            mode=self.mode,
+            device=self.device,
+            dtype=self.dtype,
+            beta_min=self.beta_min,
+            beta_max=self.beta_max,
+        )
+
+
+# ------------------------------------------------------------
+# Beta schedule configs (for D3PMScheduleConfig)
+# ------------------------------------------------------------
+
+
+class CosineBetaScheduleConfig(BaseModel):
+    """Config for cosine beta schedule. Use with beta_schedule subconfig."""
+
+    type: Literal["cosine"] = "cosine"
+    s: float = 0.008
+
+    def get_betas(
+        self,
+        num_steps: int,
+        device: str,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        schedule = CosineBetaSchedule(
+            num_steps=num_steps, s=self.s, device=device, dtype=dtype
+        )
+        return schedule.get_betas()
+
+
+class LinearBetaScheduleConfig(BaseModel):
+    """Config for linear beta schedule. Use with beta_schedule subconfig."""
+
+    type: Literal["linear"] = "linear"
+    beta_start: float = 0.0001
+    beta_end: float = 0.02
+
+    def get_betas(
+        self,
+        num_steps: int,
+        device: str,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        schedule = LinearBetaSchedule(
+            num_steps=num_steps,
+            beta_start=self.beta_start,
+            beta_end=self.beta_end,
+            device=device,
+            dtype=dtype,
+        )
+        return schedule.get_betas()
+
+
+class MIBetaScheduleConfig(BaseModel):
+    """Config for mutual-information (absorbing) beta schedule. Use with beta_schedule subconfig."""
+
+    type: Literal["mi"] = "mi"
+    s_T: float = 0.1
+    mode: Literal["linear", "cosine"] = "linear"
+    beta_min: float = 1e-8
+    beta_max: float = 0.2
+
+    def get_betas(
+        self,
+        num_steps: int,
+        device: str,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        return mi_betas_absorbing(
+            num_steps=num_steps,
+            s_T=self.s_T,
+            mode=self.mode,
+            device=device,
+            dtype=dtype,
+            beta_min=self.beta_min,
+            beta_max=self.beta_max,
+        )
+
+
+BetaScheduleConfig = Annotated[
+    Union[
+        CosineBetaScheduleConfig,
+        LinearBetaScheduleConfig,
+        MIBetaScheduleConfig,
+    ],
+    Field(discriminator="type"),
+]
 
 
 # ------------------------------------------------------------
@@ -387,6 +552,7 @@ class D3PMScheduleConfig(BaseModel):
     """
     Configuration model for D3PMSchedule.
     Acts as a factory for creating D3PMSchedule instances.
+    Use beta_schedule subconfig (cosine / linear / mi) for clear per-schedule params.
     """
 
     num_states: int = 5
@@ -395,15 +561,15 @@ class D3PMScheduleConfig(BaseModel):
     mask_state_id: int = 4  # due to SequenceLSOEIDataset
     device: str = "cpu"
     dtype: Literal["float32", "float16", "bfloat16"] = "float32"
-    # Beta schedule: "cosine" (default) or "linear"
-    beta_schedule: Literal["cosine", "linear"] = "cosine"
-    beta_start: float = 0.0001  # for linear schedule
-    beta_end: float = 0.02  # for linear schedule
+    beta_schedule: BetaScheduleConfig = Field(
+        default_factory=CosineBetaScheduleConfig,
+        description="Subconfig: cosine | linear | mi with type-specific params.",
+    )
 
     def create(self) -> D3PMSchedule:
         """
         Factory method to create a D3PMSchedule instance.
-        Betas from beta_schedule ("cosine" or "linear"); linear uses beta_start/beta_end.
+        Betas are computed from beta_schedule subconfig.
         """
         dtype_map = {
             "float32": torch.float32,
@@ -411,16 +577,11 @@ class D3PMScheduleConfig(BaseModel):
             "bfloat16": torch.bfloat16,
         }
         dt = dtype_map[self.dtype]
-        betas = None
-        if self.beta_schedule == "linear":
-            linear = LinearBetaSchedule(
-                num_steps=self.num_steps,
-                beta_start=self.beta_start,
-                beta_end=self.beta_end,
-                device=self.device,
-                dtype=dt,
-            )
-            betas = linear.get_betas()
+        betas = self.beta_schedule.get_betas(
+            num_steps=self.num_steps,
+            device=self.device,
+            dtype=dt,
+        )
         return D3PMSchedule(
             num_states=self.num_states,
             num_steps=self.num_steps,

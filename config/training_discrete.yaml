@@ -1,7 +1,7 @@
 # Discrete D3PM training with mask_absorbing kernel (x_T = MASK everywhere).
 # Uses sequence dataset: token_ids, attention_mask, label_indices (0=O, 1=subj, 2=obj, 3=pred).
 # num_states=5 with mask_state_id=4 for padding/MASK.
-# scheduler.beta_schedule: "cosine" (default) or "linear"; linear uses beta_start/beta_end.
+# scheduler.beta_schedule: subconfig with type (cosine | linear | mi) and type-specific params.
 
 trainer:
   type: "discrete_trainer"
@@ -22,9 +22,12 @@ model:
     mask_state_id: 4
     device: "cpu"    # overridden by trainer device at runtime
     dtype: "float32"
-    beta_schedule: "linear"   # or "linear"
-    beta_start: 0.0001   # for linear
-    beta_end: 0.02       # for linear
+    beta_schedule:
+      type: mi
+      s_T: 0.1
+      mode: linear
+      beta_min: 1e-8
+      beta_max: 0.02
   denoiser:
     num_states: 5
     model_dim: 256
