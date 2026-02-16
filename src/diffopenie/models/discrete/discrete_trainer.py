@@ -93,6 +93,7 @@ class DiscreteTrainer(BaseTrainer):
         self.model.load_state_dict(checkpoint, strict=False)
 
 
+
 class DiscreteTrainerConfig(BaseTrainerConfig):
     """Configuration for DiscreteTrainer."""
 
