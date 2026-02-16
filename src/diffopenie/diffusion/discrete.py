@@ -79,6 +79,41 @@ class CosineBetaSchedule:
         return betas
 
 
+class LinearBetaSchedule:
+    """
+    Linear noise schedule for discrete diffusion.
+
+    betas[t] = beta_start + (beta_end - beta_start) * (t - 1) / (num_steps - 1)
+    for t in 1..num_steps.
+
+    Returns:
+        betas: (num_steps,) tensor for D3PMSchedule(..., betas=...).
+    """
+
+    def __init__(
+        self,
+        num_steps: int,
+        beta_start: float = 0.0001,
+        beta_end: float = 0.02,
+        device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
+    ):
+        self.num_steps = num_steps
+        self.beta_start = beta_start
+        self.beta_end = beta_end
+        self.device = device
+        self.dtype = dtype
+
+    def get_betas(self) -> torch.Tensor:
+        return torch.linspace(
+            self.beta_start,
+            self.beta_end,
+            self.num_steps,
+            device=self.device,
+            dtype=self.dtype,
+        )
+
+
 # ------------------------------------------------------------
 # D3PM Scheduler (small-K, dense matrices, paper-faithful)
 # ------------------------------------------------------------
@@ -357,36 +392,42 @@ class D3PMScheduleConfig(BaseModel):
     num_states: int = 5
     num_steps: int
     kernel: str = "mask_absorbing"  # "uniform" or "mask_absorbing"
-    mask_state_id: int = 4 # due to SequenceLSOEIDataset
+    mask_state_id: int = 4  # due to SequenceLSOEIDataset
     device: str = "cpu"
     dtype: Literal["float32", "float16", "bfloat16"] = "float32"
+    # Beta schedule: "cosine" (default) or "linear"
+    beta_schedule: Literal["cosine", "linear"] = "cosine"
+    beta_start: float = 0.0001  # for linear schedule
+    beta_end: float = 0.02  # for linear schedule
 
     def create(self) -> D3PMSchedule:
         """
         Factory method to create a D3PMSchedule instance.
-        Betas are computed via CosineBetaSchedule when not provided.
-
-        Returns:
-            Instance of D3PMSchedule
-
-        Example:
-            config = D3PMScheduleConfig(
-                num_states=256, num_steps=1000, kernel="uniform"
-            )
-            schedule = config.create()
+        Betas from beta_schedule ("cosine" or "linear"); linear uses beta_start/beta_end.
         """
         dtype_map = {
             "float32": torch.float32,
             "float16": torch.float16,
             "bfloat16": torch.bfloat16,
         }
+        dt = dtype_map[self.dtype]
+        betas = None
+        if self.beta_schedule == "linear":
+            linear = LinearBetaSchedule(
+                num_steps=self.num_steps,
+                beta_start=self.beta_start,
+                beta_end=self.beta_end,
+                device=self.device,
+                dtype=dt,
+            )
+            betas = linear.get_betas()
         return D3PMSchedule(
             num_states=self.num_states,
             num_steps=self.num_steps,
             kernel=self.kernel,
             mask_state_id=self.mask_state_id,
-            betas=None,
+            betas=betas,
             device=self.device,
-            dtype=dtype_map[self.dtype],
+            dtype=dt,
         )
 
