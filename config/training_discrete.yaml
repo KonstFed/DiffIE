@@ -16,7 +16,7 @@ model:
     add_special_tokens: true
   scheduler:
     num_states: 5   # O, subject, object, predicate, MASK
-    num_steps: 100
+    num_steps: 1024
     kernel: "mask_absorbing"
     mask_state_id: 4
     device: "cpu"    # overridden by trainer device at runtime
