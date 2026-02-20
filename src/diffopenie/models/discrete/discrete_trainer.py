@@ -7,7 +7,7 @@ from diffopenie.models.discrete.discrete_model import DiscreteModel
 from diffopenie.training.base_trainer import BaseTrainer, BaseTrainerConfig
 
 
-CLASS_WEIGHTS = [0.6, 0.13, 0.13, 0.13]
+CLASS_WEIGHTS = [0.1, 0.3, 0.3, 0.3]
 
 
 class DiscreteTrainer(BaseTrainer):
@@ -18,7 +18,7 @@ class DiscreteTrainer(BaseTrainer):
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
         max_grad_norm: float = 1.0,
-        class_frequency: list[float] = CLASS_WEIGHTS,
+        class_weights: list[float] = CLASS_WEIGHTS,
     ):
         self.model = model.to(device)
         self.model.scheduler.to(device)
@@ -29,11 +29,10 @@ class DiscreteTrainer(BaseTrainer):
             max_grad_norm=max_grad_norm,
         )
         self._ignore_index = -100
-        weights = 1 / torch.tensor(class_frequency, dtype=torch.float32, device=device)
         self.criterion = nn.CrossEntropyLoss(
             reduction="mean",
             ignore_index=self._ignore_index,
-            weight=weights,
+            weight=class_weights,
         )
 
     def get_trainable_models(self):
