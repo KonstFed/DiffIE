@@ -32,7 +32,7 @@ class DiscreteTrainer(BaseTrainer):
         self.criterion = nn.CrossEntropyLoss(
             reduction="mean",
             ignore_index=self._ignore_index,
-            weight=class_weights,
+            weight=torch.tensor(class_weights, dtype=torch.float32, device=device),
         )
 
     def get_trainable_models(self):
