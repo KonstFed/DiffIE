@@ -7,7 +7,7 @@ from diffopenie.models.discrete.discrete_model import DiscreteModel
 from diffopenie.training.base_trainer import BaseTrainer, BaseTrainerConfig
 
 
-CLASS_WEIGHTS = [0.6487, 0.1214, 0.1987, 0.0312]
+CLASS_WEIGHTS = [0.6, 0.13, 0.13, 0.13]
 
 
 class DiscreteTrainer(BaseTrainer):
