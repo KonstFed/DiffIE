@@ -277,7 +277,7 @@ class SequenceLSOEIDataset(SpanLSOIEDataset):
         row = self.dataset.iloc[idx]
         words = row["words"]
         labels = row["label"]
-        token_embs = row["token_embeddings"]
+        token_embs = row["token_embeddings"] if "token_embeddings" in row else None
 
         encoding = self.tokenizer(
             words, is_split_into_words=True, add_special_tokens=False

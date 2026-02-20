@@ -1,9 +1,13 @@
 from typing import Dict, Literal
 
 import torch
+from torch import nn
 
 from diffopenie.models.discrete.discrete_model import DiscreteModel
 from diffopenie.training.base_trainer import BaseTrainer, BaseTrainerConfig
+
+
+CLASS_WEIGHTS = [0.6487, 0.1214, 0.1987, 0.0312]
 
 
 class DiscreteTrainer(BaseTrainer):
@@ -14,6 +18,7 @@ class DiscreteTrainer(BaseTrainer):
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
         max_grad_norm: float = 1.0,
+        class_frequency: list[float] = CLASS_WEIGHTS,
     ):
         self.model = model.to(device)
         self.model.scheduler.to(device)
@@ -24,6 +29,12 @@ class DiscreteTrainer(BaseTrainer):
             max_grad_norm=max_grad_norm,
         )
         self._ignore_index = -100
+        weights = 1 / torch.tensor(class_frequency, dtype=torch.float32, device=device)
+        self.criterion = nn.CrossEntropyLoss(
+            reduction="mean",
+            ignore_index=self._ignore_index,
+            weight=weights,
+        )
 
     def get_trainable_models(self):
         return [self.model]
@@ -45,14 +56,17 @@ class DiscreteTrainer(BaseTrainer):
         # ignore paddings
         target[attention_mask == 0] = self._ignore_index
         if self.model.scheduler.kernel == "mask_absorbing":
-            # if MASK tokens are used we should ignore all prediction from non-MASK tokens
+            # if MASK tokens are used we should ignore all prediction from non-MASK
             mask_state_id = self.model.scheduler.mask_state_id
             target[x_t != mask_state_id] = self._ignore_index
 
-        return torch.nn.functional.cross_entropy(
+            # drop logits for MASK tokens
+            # [B, L, K] -> [B, L, K-1]
+            logits = logits[:, :, :-1]
+
+        return self.criterion(
             logits.view(-1, logits.size(-1)),
             target.view(-1),
-            ignore_index=self._ignore_index,
         )
 
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -91,7 +105,6 @@ class DiscreteTrainer(BaseTrainer):
 
     def load_checkpoint_state_dict(self, checkpoint: Dict[str, torch.Tensor]):
         self.model.load_state_dict(checkpoint, strict=False)
-
 
 
 class DiscreteTrainerConfig(BaseTrainerConfig):
