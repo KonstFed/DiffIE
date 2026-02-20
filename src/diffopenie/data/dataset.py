@@ -2,7 +2,6 @@ import os
 import logging
 
 import pandas as pd
-from sympy.core import use
 import torch
 from datasets import load_dataset
 from torch.utils.data import Dataset
@@ -103,15 +102,17 @@ class SpanLSOIEDataset:
 
     def __init__(
         self,
-        split: str = "train",
+        split: str | list[str] = "train",
         tokenizer_name: str = "bert-base-uncased",
         filter_spans: bool = True,
         encoder: BERTEncoder | None = None,
     ):
-        self.split = split
+        splits = [split] if isinstance(split, str) else split
+        self.split = splits
 
-        dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)[split]
-        dataset = pd.DataFrame(dataset)
+        hf_dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)
+        dfs = [pd.DataFrame(hf_dataset[s]) for s in splits]
+        dataset = pd.concat(dfs, ignore_index=True).reset_index(drop=True)
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
         self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True)
 
@@ -330,7 +331,7 @@ class SpanLSOEIDatasetConfig(BaseModel):
     use_cache: bool = False
     encoder: BERTEncoderConfig | None = None
 
-    def create(self, split: str) -> SpanLSOIEDataset:
+    def create(self, split: str | list[str]) -> SpanLSOIEDataset:
         ds = SpanLSOIEDataset(
             split=split,
             tokenizer_name=self.tokenizer_name,
@@ -352,7 +353,7 @@ class SequenceLSOEIDatasetConfig(BaseModel):
     use_cache: bool = False
     encoder: BERTEncoderConfig | None = None
 
-    def create(self, split: str) -> SequenceLSOEIDataset:
+    def create(self, split: str | list[str]) -> SequenceLSOEIDataset:
         ds = SequenceLSOEIDataset(
             split=split,
             tokenizer_name=self.tokenizer_name,

@@ -87,9 +87,9 @@ def create_training_components(config: TrainingConfig):
     trainer = config.trainer.create(model=model)
 
     # Create datasets
-    train_dataset = config.data.dataset.create(split="train")
+    train_dataset = config.data.dataset.create(split=["train", "validation"])
 
-    val_dataset = config.data.dataset.create(split="validation")
+    val_dataset = config.data.dataset.create(split="test")
 
     # Create collator
     if config.data.dataset.type == "sequence":
