@@ -204,7 +204,7 @@ class SequenceImojieDatasetConfig(BaseModel):
     tokenizer_name: str = "bert-base-uncased"
     min_success_pct: float | None = None
 
-    def create(self, split: str | list[str]) -> SequenceImojieDataset:
+    def create(self) -> SequenceImojieDataset:
         return SequenceImojieDataset(
             path=self.path,
             tokenizer_name=self.tokenizer_name,

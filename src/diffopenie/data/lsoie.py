@@ -247,12 +247,13 @@ class SpanLSOEIDatasetConfig(BaseModel):
     """Configuration for SpanLSOIEDataset."""
 
     type: Literal["span"] = "span"
+    split: str | list[str] = "train"
     tokenizer_name: str = "bert-base-uncased"
     filter_spans: bool = True
 
-    def create(self, split: str | list[str]) -> SpanLSOIEDataset:
+    def create(self) -> SpanLSOIEDataset:
         return SpanLSOIEDataset(
-            split=split,
+            split=self.split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
         )
@@ -262,12 +263,13 @@ class SequenceLSOEIDatasetConfig(BaseModel):
     """Configuration for SequenceLSOEIDataset."""
 
     type: Literal["sequence"] = "sequence"
+    split: str | list[str] = "train"
     tokenizer_name: str = "bert-base-uncased"
     filter_spans: bool = False
 
-    def create(self, split: str | list[str]) -> SequenceLSOEIDataset:
+    def create(self) -> SequenceLSOEIDataset:
         return SequenceLSOEIDataset(
-            split=split,
+            split=self.split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
         )

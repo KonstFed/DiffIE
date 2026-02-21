@@ -23,19 +23,45 @@ from diffopenie.data.imojie import SequenceImojieDatasetConfig
 from diffopenie.data.collator import SequenceCollator, SpanCollator
 
 
+DatasetConfigUnion = Annotated[
+    SequenceLSOEIDatasetConfig
+    | SpanLSOEIDatasetConfig
+    | CachedDatasetConfig
+    | SequenceImojieDatasetConfig,
+    Field(discriminator="type"),
+]
+
+
+def _dataset_type_for_collator(cfg: DatasetConfigUnion) -> str:
+    """Return effective dataset type (for cached, use first inner dataset type)."""
+    if cfg.type == "cached":
+        return cfg.datasets[0].type
+    return cfg.type
+
+
 class DataConfig(BaseModel):
     """Configuration for data loading."""
-    dataset: Annotated[
-        SequenceLSOEIDatasetConfig
-        | SpanLSOEIDatasetConfig
-        | CachedDatasetConfig
-        | SequenceImojieDatasetConfig,
-        Field(discriminator="type"),
-    ]
+    train_dataset: DatasetConfigUnion | None = None
+    val_dataset: DatasetConfigUnion | None = None
+    dataset: DatasetConfigUnion | None = None  # legacy: used for both train and val
     batch_size: int = 32
     num_workers: int = 4
-    pad_token_id: int = 0 # not needed for span
-    pad_label_idx: int = 0 # not needed for span
+    pad_token_id: int = 0  # not needed for span
+    pad_label_idx: int = 0  # not needed for span
+
+    def get_train_config(self) -> DatasetConfigUnion:
+        if self.train_dataset is not None:
+            return self.train_dataset
+        if self.dataset is not None:
+            return self.dataset
+        raise ValueError("DataConfig must have train_dataset or (legacy) dataset")
+
+    def get_val_config(self) -> DatasetConfigUnion:
+        if self.val_dataset is not None:
+            return self.val_dataset
+        if self.dataset is not None:
+            return self.dataset
+        raise ValueError("DataConfig must have val_dataset or (legacy) dataset")
 
 
 class TrainingConfig(BaseModel):
@@ -94,15 +120,14 @@ def create_training_components(config: TrainingConfig):
     # Create trainer
     trainer = config.trainer.create(model=model)
 
-    # Create datasets
-    train_dataset = config.data.dataset.create(split=["train", "validation"])
+    # Create datasets (split is set in each dataset config, not passed to create())
+    train_cfg = config.data.get_train_config()
+    val_cfg = config.data.get_val_config()
+    train_dataset = train_cfg.create()
+    val_dataset = val_cfg.create()
 
-    val_dataset = config.data.dataset.create(split="test")
-
-    # Create collator (for cached, use inner dataset type; imojie uses sequence)
-    dataset_type = config.data.dataset.type
-    if dataset_type == "cached":
-        dataset_type = config.data.dataset.datasets[0].type
+    # Collator from train dataset type (cached -> first inner type)
+    dataset_type = _dataset_type_for_collator(train_cfg)
     if dataset_type in ("sequence", "imojie"):
         collator = SequenceCollator(
             pad_token_id=config.data.pad_token_id,
@@ -113,7 +138,7 @@ def create_training_components(config: TrainingConfig):
             pad_token_id=config.data.pad_token_id,
         )
     else:
-        raise ValueError(f"Invalid dataset type: {config.data.dataset.type}")
+        raise ValueError(f"Invalid dataset type: {dataset_type}")
 
     # Create dataloaders
     train_dataloader = DataLoader(

@@ -130,8 +130,8 @@ class CachedDatasetConfig(BaseModel):
     encoder: BERTEncoderConfig | None = None
     batch_size: int = 32
 
-    def create(self, split: str | list[str]) -> CachedDataset:
-        built = [cfg.create(split) for cfg in self.datasets]
+    def create(self) -> CachedDataset:
+        built = [cfg.create() for cfg in self.datasets]
         encoder_instance = (
             self.encoder.create() if self.encoder is not None else None
         )
