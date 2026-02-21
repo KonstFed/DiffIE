@@ -21,6 +21,7 @@ from diffopenie.data.dataset import (
 )
 from diffopenie.data.imojie import SequenceImojieDatasetConfig
 from diffopenie.data.collator import SequenceCollator, SpanCollator
+from diffopenie.data import SEQ_INT2STR
 
 
 DatasetConfigUnion = Annotated[
@@ -47,7 +48,7 @@ class DataConfig(BaseModel):
     batch_size: int = 32
     num_workers: int = 4
     pad_token_id: int = 0  # not needed for span
-    pad_label_idx: int = 0  # not needed for span
+    pad_label_idx: int = SEQ_INT2STR["PAD"]
 
     def get_train_config(self) -> DatasetConfigUnion:
         if self.train_dataset is not None:
