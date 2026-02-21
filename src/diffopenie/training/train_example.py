@@ -1,6 +1,7 @@
 """Training example with configuration and CLI for diffusion-based OpenIE model."""
 
 import argparse
+from pathlib import Path
 from typing import Annotated, Optional, Union
 from torch.utils.data import DataLoader
 from pydantic import BaseModel, Field
@@ -175,11 +176,21 @@ def main():
         type=str,
         help="Path to YAML configuration file containing TrainingConfig",
     )
+    parser.add_argument(
+        "--log-path",
+        type=str,
+        default=None,
+        help="Path to CSV training log. Default: ./<config_stem>.csv",
+    )
 
     args = parser.parse_args()
 
     # Load configuration from YAML file
     config = load_config(TrainingConfig, args.config_path)
+
+    log_path = args.log_path
+    if log_path is None:
+        log_path = str(Path(".") / f"{Path(args.config_path).stem}.csv")
 
     print(f"Loaded configuration from {args.config_path}")
     print(f"Training for {config.num_epochs} epochs")
@@ -205,6 +216,7 @@ def main():
         save_interval=config.save_interval,
         val_dataloader=components["val_dataloader"],
         val_full_interval=config.val_full_interval,
+        log_path=log_path,
     )
 
     print("-" * 80)

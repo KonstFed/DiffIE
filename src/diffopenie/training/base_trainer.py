@@ -1,9 +1,12 @@
 """Base trainer class for model-agnostic training infrastructure."""
 import os
-from typing import Dict, Optional, List
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from pathlib import Path
+from typing import Dict, Optional, List
 
+import matplotlib.pyplot as plt
+import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -386,6 +389,75 @@ class BaseTrainer(ABC):
 
         return metrics
 
+    @staticmethod
+    def plot_training_log(csv_path: Path, plot_path: Optional[Path] = None) -> None:
+        """
+        Read training CSV log and save a single PNG with two concatenated plots:
+        1) Train and validation loss vs epoch.
+        2) Validation metrics (precision, recall, f1) vs epoch.
+
+        Args:
+            csv_path: Path to the CSV log (e.g. training_discrete.csv).
+            plot_path: Where to save the PNG. If None, uses same dir as csv_path
+                with stem '<csv_stem>_plots.png'.
+        """
+        if not csv_path.exists():
+            return
+        df = pd.read_csv(csv_path)
+        if df.empty or "epoch" not in df.columns:
+            return
+
+        if plot_path is None:
+            plot_path = csv_path.parent / f"{csv_path.stem}_plots.png"
+        plot_path = Path(plot_path)
+        plot_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fig, axes = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
+        epochs = df["epoch"].astype(int)
+
+        # Plot 1: train and validation loss
+        ax1 = axes[0]
+        if "loss" in df.columns:
+            ax1.plot(epochs, df["loss"], label="Train loss", marker="o", markersize=4)
+        if "val_loss" in df.columns:
+            ax1.plot(
+                epochs,
+                df["val_loss"],
+                label="Validation loss",
+                marker="s",
+                markersize=4,
+            )
+        ax1.set_ylabel("Loss")
+        ax1.set_title("Train and validation loss")
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+
+        # Plot 2: validation metrics (precision, recall, f1) where available
+        ax2 = axes[1]
+        metric_cols = ["precision", "recall", "f1"]
+        for col in metric_cols:
+            if col not in df.columns:
+                continue
+            valid = df[col].notna()
+            if not valid.any():
+                continue
+            ax2.plot(
+                df.loc[valid, "epoch"],
+                df.loc[valid, col],
+                label=col,
+                marker="o",
+                markersize=4,
+            )
+        ax2.set_xlabel("Epoch")
+        ax2.set_ylabel("Score")
+        ax2.set_title("Validation metrics (per validation epoch)")
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+        plt.close()
+
     def train(
         self,
         train_dataloader: DataLoader,
@@ -395,6 +467,7 @@ class BaseTrainer(ABC):
         save_interval: int = 1,
         val_dataloader: Optional[DataLoader] = None,
         val_full_interval: int = 5,
+        log_path: Optional[str] = None,
     ):
         """
         Main training loop.
@@ -408,7 +481,18 @@ class BaseTrainer(ABC):
             val_dataloader: DataLoader for validation data (optional)
             val_full_interval: Run full validation (with metrics) every N epochs.
                 Validation loss is computed after every epoch.
+            log_path: Path to CSV log file (train/val loss and validation metrics).
+                If None and save_path is set, uses save_path/train_log.csv.
         """
+        # Resolve CSV log path (pathlib)
+        log_path_resolved = None
+        if log_path is not None:
+            log_path_resolved = Path(log_path)
+        elif save_path is not None:
+            log_path_resolved = Path(save_path) / "train_log.csv"
+
+        log_rows = []
+
         # Get model info for logging
         total_params = sum(
             p.numel()
@@ -423,6 +507,8 @@ class BaseTrainer(ABC):
             print(
                 f"Validation loss computed every epoch, full validation every {val_full_interval} epochs"
             )
+        if log_path_resolved is not None:
+            print(f"CSV log: {log_path_resolved}")
 
         # Track best validation F1 for saving best model
         best_f1 = -1.0
@@ -440,6 +526,20 @@ class BaseTrainer(ABC):
             val_metrics = None
             if val_dataloader is not None and epoch % val_full_interval == 0:
                 val_metrics = self.validate(val_dataloader)
+
+            # CSV log: append row from train_metrics, val_loss_metrics, val_metrics (columns update on fly)
+            if log_path_resolved is not None:
+                row = {"epoch": epoch}
+                row.update(train_metrics)
+                if val_loss_metrics is not None:
+                    row.update(val_loss_metrics)
+                if val_metrics is not None:
+                    row.update(val_metrics)
+                log_rows.append(row)
+                df = pd.DataFrame(log_rows)
+                log_path_resolved.parent.mkdir(parents=True, exist_ok=True)
+                df.to_csv(log_path_resolved, index=False)
+                self.plot_training_log(log_path_resolved)
 
             # Print metrics with smart formatting (up to 20 significant digits, auto scientific)
             metric_str = ", ".join([f"{k}={v:.20g}" for k, v in train_metrics.items()])
@@ -466,6 +566,7 @@ class BaseTrainer(ABC):
             # Save checkpoint
             if save_path and epoch % save_interval == 0:
                 self.save_checkpoint(save_path, epoch)
+
 
     @abstractmethod
     def get_checkpoint_state_dict(self) -> Dict[str, torch.Tensor]:
