@@ -14,14 +14,20 @@ from diffopenie.models.span import SpanDiffusionModelConfig
 from diffopenie.models.sequence import DiffusionSequenceLabelerConfig
 from diffopenie.models.detie import DetIEModelConfig
 from diffopenie.models.discrete.discrete_model import DiscreteModelConfig
-from diffopenie.data.dataset import SequenceLSOEIDatasetConfig, SpanLSOEIDatasetConfig
+from diffopenie.data.dataset import (
+    CachedDatasetConfig,
+    SequenceLSOEIDatasetConfig,
+    SpanLSOEIDatasetConfig,
+)
 from diffopenie.data.collator import SequenceCollator, SpanCollator
 
 
 class DataConfig(BaseModel):
     """Configuration for data loading."""
     dataset: Annotated[
-        SequenceLSOEIDatasetConfig | SpanLSOEIDatasetConfig,
+        SequenceLSOEIDatasetConfig
+        | SpanLSOEIDatasetConfig
+        | CachedDatasetConfig,
         Field(discriminator="type"),
     ]
     batch_size: int = 32
@@ -91,13 +97,16 @@ def create_training_components(config: TrainingConfig):
 
     val_dataset = config.data.dataset.create(split="test")
 
-    # Create collator
-    if config.data.dataset.type == "sequence":
+    # Create collator (for cached, use inner dataset type)
+    dataset_type = config.data.dataset.type
+    if dataset_type == "cached":
+        dataset_type = config.data.dataset.datasets[0].type
+    if dataset_type == "sequence":
         collator = SequenceCollator(
             pad_token_id=config.data.pad_token_id,
             pad_label_idx=config.data.pad_label_idx,
         )
-    elif config.data.dataset.type == "span":
+    elif dataset_type == "span":
         collator = SpanCollator(
             pad_token_id=config.data.pad_token_id,
         )
