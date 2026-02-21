@@ -195,10 +195,10 @@ class BaseTrainer(ABC):
             # Update progress bar
             progress_bar.set_postfix({k: v for k, v in metrics.items()})
 
-            # Log periodically
-            if (batch_idx + 1) % log_interval == 0:
-                metric_str = ", ".join([f"{k}={v:.3g}" for k, v in metrics.items()])
-                tqdm.write(f"Step {self.global_step}: {metric_str}")
+            # # Log periodically
+            # if (batch_idx + 1) % log_interval == 0:
+            #     metric_str = ", ".join([f"{k}={v:.3g}" for k, v in metrics.items()])
+            #     tqdm.write(f"Step {self.global_step}: {metric_str}")
 
         # Average metrics
         avg_metrics = {
