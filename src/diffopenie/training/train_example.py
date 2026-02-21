@@ -97,7 +97,6 @@ class TrainingConfig(BaseModel):
     save_path: Optional[str] = None
     save_interval: int = 1
     val_full_interval: int = 5
-    num_classes: int = 4  # O, Subject, Object, Predicate
 
 
 def create_training_components(config: TrainingConfig):
@@ -204,7 +203,6 @@ def main():
         save_path=config.save_path,
         save_interval=config.save_interval,
         val_dataloader=components["val_dataloader"],
-        num_classes=config.num_classes,
         val_full_interval=config.val_full_interval,
     )
 

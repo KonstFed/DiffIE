@@ -44,4 +44,3 @@ log_interval: 100
 save_path: checkpoints_detie
 save_interval: 5
 val_full_interval: 5
-num_classes: 4

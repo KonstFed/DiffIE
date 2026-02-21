@@ -54,4 +54,3 @@ log_interval: 500  # Log metrics every N steps
 save_path: checkpoints  # Path to save checkpoints (null = don't save)
 save_interval: 5 # Save checkpoint every N epochs
 val_full_interval: 5  # Run full validation (with metrics) every N epochs
-num_classes: 4  # O, Subject, Object, Predicate

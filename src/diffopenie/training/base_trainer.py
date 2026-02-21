@@ -273,7 +273,6 @@ class BaseTrainer(ABC):
         predictions: torch.Tensor,  # [B, L] or [N]
         labels: torch.Tensor,  # [B, L] or [N]
         attention_mask: Optional[torch.Tensor] = None,  # [B, L] or [N]
-        num_classes: int = 4,
     ) -> Dict[str, float]:
         """
         Compute CaRB-style metrics based on token overlap between predicted and gold extractions.
@@ -284,7 +283,6 @@ class BaseTrainer(ABC):
             labels: True label indices [B, L] or [N]
                 (0=O, 1=subject, 2=object, 3=predicate)
             attention_mask: Attention mask (1 for real tokens, 0 for padding) [B, L] or [N]
-            num_classes: Number of label classes (unused, kept for compatibility)
 
         Returns:
             Dictionary with precision, recall, and F1 based on token overlap
@@ -347,17 +345,12 @@ class BaseTrainer(ABC):
             "f1": float(f1),
         }
 
-    def validate(
-        self,
-        val_dataloader: DataLoader,
-        num_classes: int = 4,
-    ) -> Dict[str, float]:
+    def validate(self, val_dataloader: DataLoader) -> Dict[str, float]:
         """
         Run full inference-like validation.
 
         Args:
             val_dataloader: DataLoader for validation data
-            num_classes: Number of label classes for validation metrics
 
         Returns:
             Dictionary with validation metrics
@@ -389,7 +382,7 @@ class BaseTrainer(ABC):
         attention_mask = torch.cat(all_masks, dim=0)
 
         # Compute metrics
-        metrics = self.compute_metrics(predictions, labels, attention_mask, num_classes)
+        metrics = self.compute_metrics(predictions, labels, attention_mask)
 
         return metrics
 
@@ -401,7 +394,6 @@ class BaseTrainer(ABC):
         save_path: Optional[str] = None,
         save_interval: int = 1,
         val_dataloader: Optional[DataLoader] = None,
-        num_classes: int = 4,
         val_full_interval: int = 5,
     ):
         """
@@ -414,7 +406,6 @@ class BaseTrainer(ABC):
             save_path: Path to save checkpoints (optional)
             save_interval: Save checkpoint every N epochs
             val_dataloader: DataLoader for validation data (optional)
-            num_classes: Number of label classes for validation metrics
             val_full_interval: Run full validation (with metrics) every N epochs.
                 Validation loss is computed after every epoch.
         """
@@ -448,7 +439,7 @@ class BaseTrainer(ABC):
             # Full validation with metrics (computed every N epochs)
             val_metrics = None
             if val_dataloader is not None and epoch % val_full_interval == 0:
-                val_metrics = self.validate(val_dataloader, num_classes)
+                val_metrics = self.validate(val_dataloader)
 
             # Print metrics with smart formatting (up to 20 significant digits, auto scientific)
             metric_str = ", ".join([f"{k}={v:.20g}" for k, v in train_metrics.items()])
