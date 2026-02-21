@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from torch.utils.data import Dataset
 from tqdm import trange
 
+from diffopenie.data.imojie import SequenceImojieDatasetConfig
 from diffopenie.data.lsoie import (
     SequenceLSOEIDataset,
     SequenceLSOEIDatasetConfig,
@@ -112,7 +113,11 @@ class CachedDataset(Dataset):
 
 
 DatasetConfig = Annotated[
-    Union[SpanLSOEIDatasetConfig, SequenceLSOEIDatasetConfig],
+    Union[
+        SpanLSOEIDatasetConfig,
+        SequenceLSOEIDatasetConfig,
+        SequenceImojieDatasetConfig,
+    ],
     Field(discriminator="type"),
 ]
 

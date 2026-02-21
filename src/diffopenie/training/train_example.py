@@ -19,6 +19,7 @@ from diffopenie.data.dataset import (
     SequenceLSOEIDatasetConfig,
     SpanLSOEIDatasetConfig,
 )
+from diffopenie.data.imojie import SequenceImojieDatasetConfig
 from diffopenie.data.collator import SequenceCollator, SpanCollator
 
 
@@ -27,7 +28,8 @@ class DataConfig(BaseModel):
     dataset: Annotated[
         SequenceLSOEIDatasetConfig
         | SpanLSOEIDatasetConfig
-        | CachedDatasetConfig,
+        | CachedDatasetConfig
+        | SequenceImojieDatasetConfig,
         Field(discriminator="type"),
     ]
     batch_size: int = 32
@@ -97,11 +99,11 @@ def create_training_components(config: TrainingConfig):
 
     val_dataset = config.data.dataset.create(split="test")
 
-    # Create collator (for cached, use inner dataset type)
+    # Create collator (for cached, use inner dataset type; imojie uses sequence)
     dataset_type = config.data.dataset.type
     if dataset_type == "cached":
         dataset_type = config.data.dataset.datasets[0].type
-    if dataset_type == "sequence":
+    if dataset_type in ("sequence", "imojie"):
         collator = SequenceCollator(
             pad_token_id=config.data.pad_token_id,
             pad_label_idx=config.data.pad_label_idx,

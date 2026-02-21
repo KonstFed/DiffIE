@@ -10,6 +10,8 @@ from pydantic import BaseModel
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
+from diffopenie.data import SEQ_STR2INT
+
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +93,7 @@ class LSOIEDataset(Dataset):
 
         hf_dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)
         dfs = [pd.DataFrame(hf_dataset[s]) for s in splits]
-        dataset = pd.concat(dfs, ignore_index=True).reset_index(drop=True).iloc[:10]
+        dataset = pd.concat(dfs, ignore_index=True).reset_index(drop=True)
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
         self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True)
 
@@ -229,9 +231,10 @@ class SequenceLSOEIDataset(LSOIEDataset):
         ]
 
         label = torch.zeros(len(tokens), dtype=torch.long)
-        label[subject_indices] = 1
-        label[object_indices] = 2
-        label[predicate_indices] = 3
+        label = label.fill_(SEQ_STR2INT["B"])
+        label[subject_indices] = SEQ_STR2INT["S"]
+        label[object_indices] = SEQ_STR2INT["R"]
+        label[predicate_indices] = SEQ_STR2INT["O"]
 
         return {
             "tokens": tokens,
