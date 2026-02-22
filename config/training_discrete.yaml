@@ -74,7 +74,7 @@ data:
   pad_token_id: 0
   pad_label_idx: 0
 
-num_epochs: 100
+num_epochs: 10000
 log_interval: 100
 save_path: checkpoints_discrete
 save_interval: 5
