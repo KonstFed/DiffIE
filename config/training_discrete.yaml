@@ -22,12 +22,16 @@ model:
     mask_state_id: 4
     device: "cpu"    # overridden by trainer device at runtime
     dtype: "float32"
+    # beta_schedule:
+    #   type: mi
+    #   s_T: 0.1
+    #   mode: linear
+    #   beta_min: 1e-8
+    #   beta_max: 0.02
     beta_schedule:
-      type: mi
-      s_T: 0.1
-      mode: linear
-      beta_min: 1e-8
-      beta_max: 0.02
+      type: linear
+      beta_min: 1e-4
+      beta_max: 0.0467
   denoiser:
     num_states: 5
     model_dim: 256
