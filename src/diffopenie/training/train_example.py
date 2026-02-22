@@ -99,6 +99,8 @@ class TrainingConfig(BaseModel):
     save_path: Optional[str] = None
     save_interval: int = 1
     val_full_interval: int = 5
+    val_metrics_on_train: bool = False  # Compute precision/recall/f1 on train set every val_full_interval epochs
+    train_val_batches: Optional[int] = None  # Max batches for train metrics; null = all
 
 
 def create_training_components(config: TrainingConfig):
@@ -216,6 +218,8 @@ def main():
         save_interval=config.save_interval,
         val_dataloader=components["val_dataloader"],
         val_full_interval=config.val_full_interval,
+        val_metrics_on_train=config.val_metrics_on_train,
+        train_val_batches=config.train_val_batches,
         log_path=log_path,
     )
 

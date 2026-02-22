@@ -348,12 +348,13 @@ class BaseTrainer(ABC):
             "f1": float(f1),
         }
 
-    def validate(self, val_dataloader: DataLoader) -> Dict[str, float]:
+    def validate(self, val_dataloader: DataLoader, max_batches: int | None = None) -> Dict[str, float]:
         """
         Run full inference-like validation.
 
         Args:
             val_dataloader: DataLoader for validation data
+            max_batches: Maximum number of batches to validate on. If None, validate on all batches.
 
         Returns:
             Dictionary with validation metrics
@@ -368,7 +369,9 @@ class BaseTrainer(ABC):
 
         progress_bar = tqdm(val_dataloader, desc="Validating", leave=False)
 
-        for batch in progress_bar:
+        for batch_idx, batch in enumerate(progress_bar):
+            if max_batches is not None and batch_idx >= max_batches:
+                break
             results = self.validate_step(batch)
             all_predictions.append(results["predictions"].flatten())
             all_labels.append(results["labels"].flatten())
@@ -392,9 +395,10 @@ class BaseTrainer(ABC):
     @staticmethod
     def plot_training_log(csv_path: Path, plot_path: Optional[Path] = None) -> None:
         """
-        Read training CSV log and save a single PNG with two concatenated plots:
+        Read training CSV log and save a single PNG with three rows:
         1) Train and validation loss vs epoch.
-        2) Validation metrics (precision, recall, f1) vs epoch.
+        2) Train metrics (train_precision, train_recall, train_f1) vs epoch.
+        3) Validation metrics (precision, recall, f1) vs epoch.
 
         Args:
             csv_path: Path to the CSV log (e.g. training_discrete.csv).
@@ -412,10 +416,10 @@ class BaseTrainer(ABC):
         plot_path = Path(plot_path)
         plot_path.parent.mkdir(parents=True, exist_ok=True)
 
-        fig, axes = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
+        fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
         epochs = df["epoch"].astype(int)
 
-        # Plot 1: train and validation loss
+        # Row 1: train and validation loss
         ax1 = axes[0]
         if "loss" in df.columns:
             ax1.plot(epochs, df["loss"], label="Train loss", marker="o", markersize=4)
@@ -432,27 +436,49 @@ class BaseTrainer(ABC):
         ax1.legend()
         ax1.grid(True, alpha=0.3)
 
-        # Plot 2: validation metrics (precision, recall, f1) where available
+        # Row 2: train metrics (train_precision, train_recall, train_f1)
         ax2 = axes[1]
-        metric_cols = ["precision", "recall", "f1"]
-        for col in metric_cols:
+        train_metric_cols = ["train_precision", "train_recall", "train_f1"]
+        for col in train_metric_cols:
             if col not in df.columns:
                 continue
             valid = df[col].notna()
             if not valid.any():
                 continue
+            label = col.replace("train_", "")
             ax2.plot(
+                df.loc[valid, "epoch"],
+                df.loc[valid, col],
+                label=label,
+                marker="o",
+                markersize=4,
+            )
+        ax2.set_ylabel("Score")
+        ax2.set_title("Train metrics (per validation epoch)")
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        # Row 3: validation metrics (precision, recall, f1)
+        ax3 = axes[2]
+        val_metric_cols = ["precision", "recall", "f1"]
+        for col in val_metric_cols:
+            if col not in df.columns:
+                continue
+            valid = df[col].notna()
+            if not valid.any():
+                continue
+            ax3.plot(
                 df.loc[valid, "epoch"],
                 df.loc[valid, col],
                 label=col,
                 marker="o",
                 markersize=4,
             )
-        ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("Score")
-        ax2.set_title("Validation metrics (per validation epoch)")
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
+        ax3.set_xlabel("Epoch")
+        ax3.set_ylabel("Score")
+        ax3.set_title("Validation metrics (per validation epoch)")
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
 
         plt.tight_layout()
         plt.savefig(plot_path, dpi=150, bbox_inches="tight")
@@ -467,7 +493,9 @@ class BaseTrainer(ABC):
         save_interval: int = 1,
         val_dataloader: Optional[DataLoader] = None,
         val_full_interval: int = 5,
+        val_metrics_on_train: bool = False,
         log_path: Optional[str] = None,
+        train_val_batches: int | None = None,
     ):
         """
         Main training loop.
@@ -481,8 +509,13 @@ class BaseTrainer(ABC):
             val_dataloader: DataLoader for validation data (optional)
             val_full_interval: Run full validation (with metrics) every N epochs.
                 Validation loss is computed after every epoch.
+            val_metrics_on_train: If True, compute validation-style metrics
+                (precision, recall, f1) on the train dataloader at the same
+                cadence as full validation. Logged as train_precision,
+                train_recall, train_f1.
             log_path: Path to CSV log file (train/val loss and validation metrics).
                 If None and save_path is set, uses save_path/train_log.csv.
+            train_val_batches: Maximum number of batches to validate on the train dataloader. If None, validate on all batches.
         """
         # Resolve CSV log path (pathlib)
         log_path_resolved = None
@@ -507,6 +540,10 @@ class BaseTrainer(ABC):
             print(
                 f"Validation loss computed every epoch, full validation every {val_full_interval} epochs"
             )
+        if val_metrics_on_train:
+            print(
+                f"Train metrics (precision/recall/f1) computed every {val_full_interval} epochs"
+            )
         if log_path_resolved is not None:
             print(f"CSV log: {log_path_resolved}")
 
@@ -527,7 +564,12 @@ class BaseTrainer(ABC):
             if val_dataloader is not None and epoch % val_full_interval == 0:
                 val_metrics = self.validate(val_dataloader)
 
-            # CSV log: append row from train_metrics, val_loss_metrics, val_metrics (columns update on fly)
+            # Validation-style metrics on train dataloader (optional, same cadence)
+            train_metrics_full = None
+            if val_metrics_on_train and epoch % val_full_interval == 0:
+                train_metrics_full = self.validate(train_dataloader, max_batches=train_val_batches)
+
+            # CSV log: append row from train_metrics, val_loss_metrics, val_metrics
             if log_path_resolved is not None:
                 row = {"epoch": epoch}
                 row.update(train_metrics)
@@ -535,6 +577,11 @@ class BaseTrainer(ABC):
                     row.update(val_loss_metrics)
                 if val_metrics is not None:
                     row.update(val_metrics)
+                if train_metrics_full is not None:
+                    train_metrics_full = {f"train_{k}":v for k, v in train_metrics_full.items()}
+                    row.update(
+                        train_metrics_full
+                    )
                 log_rows.append(row)
                 df = pd.DataFrame(log_rows)
                 log_path_resolved.parent.mkdir(parents=True, exist_ok=True)
@@ -544,6 +591,13 @@ class BaseTrainer(ABC):
             # Print metrics with smart formatting (up to 20 significant digits, auto scientific)
             metric_str = ", ".join([f"{k}={v:.20g}" for k, v in train_metrics.items()])
             print(f"Epoch {epoch}/{num_epochs} completed. Train: {metric_str}")
+
+            if train_metrics_full is not None:
+                print(
+                    f"  Train Precision: {train_metrics_full['train_precision']:.20g}, "
+                    f"Train Recall: {train_metrics_full['train_recall']:.20g}, "
+                    f"Train F1: {train_metrics_full['train_f1']:.20g}"
+                )
 
             if val_loss_metrics is not None:
                 print(f"  Val loss: {val_loss_metrics['val_loss']:.20g}")
@@ -555,7 +609,8 @@ class BaseTrainer(ABC):
                     f"Val F1: {val_metrics['f1']:.20g}"
                 )
 
-                # Save best model based on F1 score
+
+            if val_metrics is not None:
                 if save_path and val_metrics['f1'] > best_f1:
                     best_f1 = val_metrics['f1']
                     self.save_checkpoint(

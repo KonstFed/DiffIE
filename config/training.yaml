@@ -54,3 +54,5 @@ log_interval: 500  # Log metrics every N steps
 save_path: checkpoints  # Path to save checkpoints (null = don't save)
 save_interval: 5 # Save checkpoint every N epochs
 val_full_interval: 5  # Run full validation (with metrics) every N epochs
+val_metrics_on_train: false  # Compute precision/recall/f1 on train set every val_full_interval epochs
+train_val_batches: null  # Max batches for train metrics; null = all

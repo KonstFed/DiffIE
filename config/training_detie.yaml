@@ -44,3 +44,5 @@ log_interval: 100
 save_path: checkpoints_detie
 save_interval: 5
 val_full_interval: 5
+val_metrics_on_train: false
+train_val_batches: null
