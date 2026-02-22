@@ -7,6 +7,7 @@ from typing import Dict, Optional, List
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.gridspec import GridSpec
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -423,10 +424,12 @@ class BaseTrainer(ABC):
     @staticmethod
     def plot_training_log(csv_path: Path, plot_path: Optional[Path] = None) -> None:
         """
-        Read training CSV log and save a single PNG with three rows:
+        Read training CSV log and save a single PNG with five rows:
         1) Train and validation loss vs epoch.
         2) Train metrics (train_precision, train_recall, train_f1) vs epoch.
         3) Validation metrics (precision, recall, f1) vs epoch.
+        4) Train per-class F1: background, subject, relation, object (4 columns).
+        5) Validation per-class F1: background, subject, relation, object (4 columns).
 
         Args:
             csv_path: Path to the CSV log (e.g. training_discrete.csv).
@@ -444,11 +447,12 @@ class BaseTrainer(ABC):
         plot_path = Path(plot_path)
         plot_path.parent.mkdir(parents=True, exist_ok=True)
 
-        fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
+        fig = plt.figure(figsize=(12, 14))
+        gs = GridSpec(5, 4, figure=fig)
         epochs = df["epoch"].astype(int)
 
         # Row 1: train and validation loss
-        ax1 = axes[0]
+        ax1 = fig.add_subplot(gs[0, :])
         if "loss" in df.columns:
             ax1.plot(epochs, df["loss"], label="Train loss", marker="o", markersize=4)
         if "val_loss" in df.columns:
@@ -465,7 +469,7 @@ class BaseTrainer(ABC):
         ax1.grid(True, alpha=0.3)
 
         # Row 2: train metrics (train_precision, train_recall, train_f1)
-        ax2 = axes[1]
+        ax2 = fig.add_subplot(gs[1, :], sharex=ax1)
         train_metric_cols = ["train_precision", "train_recall", "train_f1"]
         for col in train_metric_cols:
             if col not in df.columns:
@@ -487,7 +491,7 @@ class BaseTrainer(ABC):
         ax2.grid(True, alpha=0.3)
 
         # Row 3: validation metrics (precision, recall, f1)
-        ax3 = axes[2]
+        ax3 = fig.add_subplot(gs[2, :], sharex=ax1)
         val_metric_cols = ["precision", "recall", "f1"]
         for col in val_metric_cols:
             if col not in df.columns:
@@ -502,12 +506,63 @@ class BaseTrainer(ABC):
                 marker="o",
                 markersize=4,
             )
-        ax3.set_xlabel("Epoch")
         ax3.set_ylabel("Score")
         ax3.set_title("Validation metrics (per validation epoch)")
         ax3.legend()
         ax3.grid(True, alpha=0.3)
 
+        # Row 4: train per-class F1 (4 columns: background, subject, relation, object)
+        train_per_class = [
+            ("train_f1_bg", "Background"),
+            ("train_f1_subj", "Subject"),
+            ("train_f1_pred", "Relation"),
+            ("train_f1_obj", "Object"),
+        ]
+        for c, (col, title) in enumerate(train_per_class):
+            ax = fig.add_subplot(gs[3, c], sharex=ax1)
+            if col in df.columns:
+                valid = df[col].notna()
+                if valid.any():
+                    ax.plot(
+                        df.loc[valid, "epoch"],
+                        df.loc[valid, col],
+                        marker="o",
+                        markersize=4,
+                    )
+            ax.set_ylabel("F1")
+            ax.set_title(f"Train: {title}")
+            ax.grid(True, alpha=0.3)
+            ax.set_ylim(0, 1.05)
+
+        # Row 5: validation per-class F1 (4 columns: background, subject, relation, object)
+        val_per_class = [
+            ("f1_bg", "Background"),
+            ("f1_subj", "Subject"),
+            ("f1_pred", "Relation"),
+            ("f1_obj", "Object"),
+        ]
+        for c, (col, title) in enumerate(val_per_class):
+            ax = fig.add_subplot(gs[4, c], sharex=ax1)
+            if col in df.columns:
+                valid = df[col].notna()
+                if valid.any():
+                    ax.plot(
+                        df.loc[valid, "epoch"],
+                        df.loc[valid, col],
+                        marker="o",
+                        markersize=4,
+                    )
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel("F1")
+            ax.set_title(f"Val: {title}")
+            ax.grid(True, alpha=0.3)
+            ax.set_ylim(0, 1.05)
+
+        plt.setp(ax1.get_xticklabels(), visible=False)
+        plt.setp(ax2.get_xticklabels(), visible=False)
+        plt.setp(ax3.get_xticklabels(), visible=False)
+        for ax in fig.get_axes()[3:7]:
+            plt.setp(ax.get_xticklabels(), visible=False)
         plt.tight_layout()
         plt.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close()
