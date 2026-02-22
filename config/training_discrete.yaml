@@ -9,6 +9,8 @@ trainer:
   learning_rate: 1e-4
   weight_decay: 0.01
   max_grad_norm: 1.0
+  # Ignore class 0 (background) in loss with this probability to balance class inequality (0 = off).
+  background_drop_prob: 0.8
 
 model:
   encoder:

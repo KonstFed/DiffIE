@@ -20,9 +20,11 @@ class DiscreteTrainer(BaseTrainer):
         weight_decay: float = 0.01,
         max_grad_norm: float = 1.0,
         class_weights: list[float] = CLASS_WEIGHTS,
+        background_drop_prob: float = 0.8,
     ):
         self.model = model.to(device)
         self.model.scheduler.to(device)
+        self.background_drop_prob = background_drop_prob
         super().__init__(
             device=device,
             learning_rate=learning_rate,
@@ -63,6 +65,17 @@ class DiscreteTrainer(BaseTrainer):
             # drop logits for MASK tokens
             # [B, L, K] -> [B, L, K-1]
             logits = logits[:, :, :-1]
+
+        # Balance class inequality: randomly ignore background (class 0) with
+        # probability background_drop_prob
+        if self.background_drop_prob > 0 and self.model.training:
+            is_background = labels == 0
+            contributes_to_loss = target != self._ignore_index
+            r = torch.rand_like(target, dtype=torch.float32, device=target.device)
+            drop = (is_background & contributes_to_loss) & (
+                r < self.background_drop_prob
+            )
+            target[drop] = self._ignore_index
 
         return self.criterion(
             logits.view(-1, logits.size(-1)),
@@ -111,6 +124,7 @@ class DiscreteTrainerConfig(BaseTrainerConfig):
     """Configuration for DiscreteTrainer."""
 
     type: Literal["discrete_trainer"] = "discrete_trainer"
+    background_drop_prob: float = 0.8
 
     def create(self, model: DiscreteModel) -> DiscreteTrainer:
         return DiscreteTrainer(
@@ -119,4 +133,5 @@ class DiscreteTrainerConfig(BaseTrainerConfig):
             learning_rate=self.learning_rate,
             weight_decay=self.weight_decay,
             max_grad_norm=self.max_grad_norm,
+            background_drop_prob=self.background_drop_prob,
         )
