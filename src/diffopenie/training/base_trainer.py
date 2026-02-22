@@ -312,7 +312,10 @@ class BaseTrainer(ABC):
         label_flat = label_flat.cpu()
 
         # Compute metrics for each component separately
-        # Subject = 1, Object = 2, Predicate = 3
+        # Background = 0, Subject = 1, Object = 2, Predicate = 3
+        overlap_bg, pred_bg_count, gold_bg_count = self._compute_component_metrics(
+            pred_flat, label_flat, 0
+        )
         overlap_subj, pred_subj_count, gold_subj_count = self._compute_component_metrics(
             pred_flat, label_flat, 1
         )
@@ -327,6 +330,18 @@ class BaseTrainer(ABC):
         total_overlap = overlap_subj + overlap_obj + overlap_pred
         total_predicted = pred_subj_count + pred_obj_count + pred_pred_count
         total_gold = gold_subj_count + gold_obj_count + gold_pred_count
+
+        # Per-class (subject, object, predicate) precision, recall, F1
+        def _p_r_f1(overlap: int, pred_count: int, gold_count: int) -> tuple[float, float, float]:
+            p = overlap / pred_count if pred_count > 0 else 0.0
+            r = overlap / gold_count if gold_count > 0 else 0.0
+            f = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
+            return p, r, f
+
+        p_bg, r_bg, f_bg = _p_r_f1(overlap_bg, pred_bg_count, gold_bg_count)
+        p_subj, r_subj, f_subj = _p_r_f1(overlap_subj, pred_subj_count, gold_subj_count)
+        p_obj, r_obj, f_obj = _p_r_f1(overlap_obj, pred_obj_count, gold_obj_count)
+        p_pred, r_pred, f_pred = _p_r_f1(overlap_pred, pred_pred_count, gold_pred_count)
 
         # Compute CaRB-style metrics (micro-averaged)
         # Precision: sum of overlaps / sum of predicted tokens
@@ -346,6 +361,19 @@ class BaseTrainer(ABC):
             "precision": float(precision),
             "recall": float(recall),
             "f1": float(f1),
+            # Per-class metrics (background, subject, object, predicate)
+            "precision_bg": float(p_bg),
+            "recall_bg": float(r_bg),
+            "f1_bg": float(f_bg),
+            "precision_subj": float(p_subj),
+            "recall_subj": float(r_subj),
+            "f1_subj": float(f_subj),
+            "precision_obj": float(p_obj),
+            "recall_obj": float(r_obj),
+            "f1_obj": float(f_obj),
+            "precision_pred": float(p_pred),
+            "recall_pred": float(r_pred),
+            "f1_pred": float(f_pred),
         }
 
     def validate(self, val_dataloader: DataLoader, max_batches: int | None = None) -> Dict[str, float]:
