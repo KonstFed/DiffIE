@@ -428,8 +428,8 @@ class BaseTrainer(ABC):
         1) Train and validation loss vs epoch.
         2) Train metrics (train_precision, train_recall, train_f1) vs epoch.
         3) Validation metrics (precision, recall, f1) vs epoch.
-        4) Train per-class F1: background, subject, relation, object (4 columns).
-        5) Validation per-class F1: background, subject, relation, object (4 columns).
+        4) Train per-class precision, recall, F1: background, subject, relation, object (4 columns).
+        5) Validation per-class precision, recall, F1: background, subject, relation, object (4 columns).
 
         Args:
             csv_path: Path to the CSV log (e.g. training_discrete.csv).
@@ -511,50 +511,64 @@ class BaseTrainer(ABC):
         ax3.legend()
         ax3.grid(True, alpha=0.3)
 
-        # Row 4: train per-class F1 (4 columns: background, subject, relation, object)
+        # Row 4: train per-class precision, recall, F1 (4 columns: bg, subj, relation, obj)
         train_per_class = [
-            ("train_f1_bg", "Background"),
-            ("train_f1_subj", "Subject"),
-            ("train_f1_pred", "Relation"),
-            ("train_f1_obj", "Object"),
+            ("train_precision_bg", "train_recall_bg", "train_f1_bg", "Background"),
+            ("train_precision_subj", "train_recall_subj", "train_f1_subj", "Subject"),
+            ("train_precision_pred", "train_recall_pred", "train_f1_pred", "Relation"),
+            ("train_precision_obj", "train_recall_obj", "train_f1_obj", "Object"),
         ]
-        for c, (col, title) in enumerate(train_per_class):
+        for c, (p_col, r_col, f_col, title) in enumerate(train_per_class):
             ax = fig.add_subplot(gs[3, c], sharex=ax1)
-            if col in df.columns:
-                valid = df[col].notna()
-                if valid.any():
-                    ax.plot(
-                        df.loc[valid, "epoch"],
-                        df.loc[valid, col],
-                        marker="o",
-                        markersize=4,
-                    )
-            ax.set_ylabel("F1")
+            for col, label, marker in [
+                (p_col, "Precision", "o"),
+                (r_col, "Recall", "s"),
+                (f_col, "F1", "^"),
+            ]:
+                if col in df.columns:
+                    valid = df[col].notna()
+                    if valid.any():
+                        ax.plot(
+                            df.loc[valid, "epoch"],
+                            df.loc[valid, col],
+                            label=label,
+                            marker=marker,
+                            markersize=4,
+                        )
+            ax.set_ylabel("Score")
             ax.set_title(f"Train: {title}")
+            ax.legend(loc="lower right", fontsize=7)
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 1.05)
 
-        # Row 5: validation per-class F1 (4 columns: background, subject, relation, object)
+        # Row 5: validation per-class precision, recall, F1 (4 columns)
         val_per_class = [
-            ("f1_bg", "Background"),
-            ("f1_subj", "Subject"),
-            ("f1_pred", "Relation"),
-            ("f1_obj", "Object"),
+            ("precision_bg", "recall_bg", "f1_bg", "Background"),
+            ("precision_subj", "recall_subj", "f1_subj", "Subject"),
+            ("precision_pred", "recall_pred", "f1_pred", "Relation"),
+            ("precision_obj", "recall_obj", "f1_obj", "Object"),
         ]
-        for c, (col, title) in enumerate(val_per_class):
+        for c, (p_col, r_col, f_col, title) in enumerate(val_per_class):
             ax = fig.add_subplot(gs[4, c], sharex=ax1)
-            if col in df.columns:
-                valid = df[col].notna()
-                if valid.any():
-                    ax.plot(
-                        df.loc[valid, "epoch"],
-                        df.loc[valid, col],
-                        marker="o",
-                        markersize=4,
-                    )
+            for col, label, marker in [
+                (p_col, "Precision", "o"),
+                (r_col, "Recall", "s"),
+                (f_col, "F1", "^"),
+            ]:
+                if col in df.columns:
+                    valid = df[col].notna()
+                    if valid.any():
+                        ax.plot(
+                            df.loc[valid, "epoch"],
+                            df.loc[valid, col],
+                            label=label,
+                            marker=marker,
+                            markersize=4,
+                        )
             ax.set_xlabel("Epoch")
-            ax.set_ylabel("F1")
+            ax.set_ylabel("Score")
             ax.set_title(f"Val: {title}")
+            ax.legend(loc="lower right", fontsize=7)
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 1.05)
 
