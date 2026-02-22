@@ -526,15 +526,16 @@ class BaseTrainer(ABC):
 
         log_rows = []
 
-        # Get model info for logging
+        # Get model info for logging (trainable params only; frozen e.g. BERT excluded)
         total_params = sum(
             p.numel()
             for model in self.get_trainable_models()
             for p in model.parameters()
+            if p.requires_grad
         )
 
         print(f"Starting training for {num_epochs} epochs on {self.device}")
-        print(f"Model parameters: {total_params:,}")
+        print(f"Trainable parameters: {total_params:,}")
         if val_dataloader is not None:
             print(f"Validation enabled with {len(val_dataloader.dataset)} examples")
             print(
