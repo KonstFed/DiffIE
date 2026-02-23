@@ -87,15 +87,28 @@ def word_to_token_indices(
 class LSOIEDataset(Dataset):
     """Base LSOIE dataset: loads splits only. No filtering, encoding, or __getitem__."""
 
-    def __init__(self, split: str | list[str] = "train"):
+    def __init__(
+        self,
+        split: str | list[str] = "train",
+        drop_duplicate_sentences: bool = True, # TODO make to config
+    ):
         splits = [split] if isinstance(split, str) else split
         self.split = splits
 
         hf_dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)
         dfs = [pd.DataFrame(hf_dataset[s]) for s in splits]
-        dataset = pd.concat(dfs, ignore_index=True).reset_index(drop=True).iloc[:200]
+        dataset = pd.concat(dfs, ignore_index=True).reset_index(drop=True)
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
-        self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True)
+        if drop_duplicate_sentences:
+            n_before = len(dataset)
+            dataset = dataset.drop_duplicates(subset=["sentence"], keep="first")
+            n_dropped = n_before - len(dataset)
+            if n_dropped:
+                logger.info(
+                    "Dropped %d duplicate sentence(s), keeping first occurrence.",
+                    n_dropped,
+                )
+        self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True).iloc[:200]
 
     def __len__(self) -> int:
         return len(self.dataset)
