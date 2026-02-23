@@ -48,7 +48,7 @@ class DiscreteTrainer(BaseTrainer):
     def get_eval_models(self):
         return [self.model]
 
-    def _forward_loss(self, batch: Dict[str, torch.Tensor]):
+    def _forward_loss(self, batch: Dict[str, torch.Tensor]) -> tuple[torch.Tensor, Dict[str, float]]:
         token_ids = batch["token_ids"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
         labels = batch["label_indices"].to(self.device)
@@ -56,7 +56,8 @@ class DiscreteTrainer(BaseTrainer):
         token_emb = self.model.encode_tokens(token_ids, attention_mask)
         t = self.model.scheduler.sample_t(B)
         x_t = self.model.noise(labels, t)
-        logits = self.model.denoiser(x_t, t, token_emb, attention_mask)
+        logits = self.model.denoiser(x_t, t, token_emb, attention_mask) # [B, L, K]
+        predictions = logits.argmax(dim=-1) # [B, L]
         target = labels.clone()
 
         # ignore paddings
@@ -81,18 +82,24 @@ class DiscreteTrainer(BaseTrainer):
             )
             target[drop] = self._ignore_index
 
-        return self.criterion(
+        loss = self.criterion(
             logits.view(-1, logits.size(-1)),
             target.view(-1),
         )
+        # compute metrics
+        attention_mask[target == self._ignore_index] = 0
+        metrics = self.compute_metrics(predictions, labels, attention_mask)
+        return loss, metrics
+
 
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
-        loss = self._forward_loss(batch)
+        loss, metrics = self._forward_loss(batch)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
         self.optimizer.step()
         self.optimizer.zero_grad()
-        return {"loss": loss.item()}
+        metrics.update({"loss": loss.item()})
+        return metrics
 
     def validate_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         with torch.no_grad():
@@ -114,8 +121,9 @@ class DiscreteTrainer(BaseTrainer):
 
     def validate_loss_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         with torch.no_grad():
-            loss = self._forward_loss(batch)
-        return {"loss": loss.item()}
+            loss, metrics = self._forward_loss(batch)
+        metrics.update({"loss": loss.item()})
+        return metrics
 
     def get_checkpoint_state_dict(self) -> Dict[str, torch.Tensor]:
         return self.model.state_dict()
