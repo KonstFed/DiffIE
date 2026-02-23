@@ -693,8 +693,12 @@ class BaseTrainer(ABC):
                 self.plot_training_log(log_path_resolved)
 
 
-            # Print metrics with colors; a big mess maybe better to do in sep func
-            _c = {"r": "\033[0m", "b": "\033[1m", "dim": "\033[2m", "cyan": "\033[36m", "green": "\033[32m", "yellow": "\033[33m"}
+            # Print metrics with colors; full val metrics in separate block
+            _c = {
+                "r": "\033[0m", "b": "\033[1m", "dim": "\033[2m",
+                "cyan": "\033[36m", "green": "\033[32m", "yellow": "\033[33m",
+                "magenta": "\033[35m",
+            }
             _fmt = lambda v: f"{v:.4g}" if isinstance(v, (int, float)) else str(v)
 
             rows = []
@@ -707,10 +711,6 @@ class BaseTrainer(ABC):
             if val_loss_metrics is not None:
                 for k, v in val_loss_metrics.items():
                     rows.append((f"val {k}", v))
-            if val_metrics is not None:
-                for key in ("precision", "recall", "f1"):
-                    if key in val_metrics:
-                        rows.append((f"val_full {key}", val_metrics[key]))
 
             label_w = max(len(label) for label, _ in rows) if rows else 0
             prefix = "  "
@@ -719,6 +719,19 @@ class BaseTrainer(ABC):
             for label, value in rows:
                 pad = " " * (label_w - len(label))
                 print(f"{prefix}{_c['dim']}{label}{_c['r']}{pad}\t{_fmt(value)}")
+
+            if val_metrics is not None:
+                val_full_rows = [
+                    (k, val_metrics[k])
+                    for k in ("precision", "recall", "f1")
+                    if k in val_metrics
+                ]
+                if val_full_rows:
+                    vw = max(len(label) for label, _ in val_full_rows)
+                    print(f"  {_c['b']}{_c['magenta']}Val (full){_c['r']}")
+                    for label, value in val_full_rows:
+                        pad = " " * (vw - len(label))
+                        print(f"    {_c['magenta']}{label}{_c['r']}{pad}\t{_fmt(value)}")
 
             if val_metrics is not None:
                 if save_path and val_metrics['f1'] > best_f1:
