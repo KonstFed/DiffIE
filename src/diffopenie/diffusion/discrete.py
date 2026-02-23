@@ -478,8 +478,9 @@ class D3PMSchedule:
         Q_t = self.forward_transition[t - 1]         # (B,K,K) with Q_t at index t-1
         barQ_tm1 = self.forward_product[t - 1]       # (B,K,K) is \bar Q_{t-1}
 
-        term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))  # x_t Q_t^T
+        # term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))  # x_t Q_t^T
         term_from_x0 = torch.einsum("blk,bkj->blj", x0_oh, barQ_tm1)                # x0 \barQ_{t-1}
+        term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
 
         unnormalized = term_from_xt * term_from_x0                                  # ⊙
         return unnormalized / unnormalized.sum(dim=-1, keepdim=True).clamp_min(1e-12)

@@ -112,6 +112,7 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             attention_mask=attention_mask,
         )
         pred_states = pred_states.cpu()
+        print("AAAAA", pred_states)
         results = []
         for i in range(len(words)):
             word_ids = encodings.word_ids(batch_index=i)
