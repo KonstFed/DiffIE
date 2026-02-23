@@ -465,7 +465,8 @@ class BaseTrainer(ABC):
             )
         ax1.set_ylabel("Loss")
         ax1.set_title("Train and validation loss")
-        ax1.legend()
+        if ax1.get_legend_handles_labels()[1]:
+            ax1.legend()
         ax1.grid(True, alpha=0.3)
 
         # Row 2: train metrics (train_precision, train_recall, train_f1)
@@ -487,7 +488,8 @@ class BaseTrainer(ABC):
             )
         ax2.set_ylabel("Score")
         ax2.set_title("Train metrics (per validation epoch)")
-        ax2.legend()
+        if ax2.get_legend_handles_labels()[1]:
+            ax2.legend()
         ax2.grid(True, alpha=0.3)
 
         # Row 3: validation metrics (precision, recall, f1)
@@ -508,7 +510,8 @@ class BaseTrainer(ABC):
             )
         ax3.set_ylabel("Score")
         ax3.set_title("Validation metrics (per validation epoch)")
-        ax3.legend()
+        if ax3.get_legend_handles_labels()[1]:
+            ax3.legend()
         ax3.grid(True, alpha=0.3)
 
         # Row 4: train per-class precision, recall, F1 (4 columns: bg, subj, relation, obj)
@@ -537,7 +540,8 @@ class BaseTrainer(ABC):
                         )
             ax.set_ylabel("Score")
             ax.set_title(f"Train: {title}")
-            ax.legend(loc="lower right", fontsize=7)
+            if ax.get_legend_handles_labels()[1]:
+                ax.legend(loc="lower right", fontsize=7)
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 1.05)
 
@@ -568,7 +572,8 @@ class BaseTrainer(ABC):
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Score")
             ax.set_title(f"Val: {title}")
-            ax.legend(loc="lower right", fontsize=7)
+            if ax.get_legend_handles_labels()[1]:
+                ax.legend(loc="lower right", fontsize=7)
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 1.05)
 
@@ -670,6 +675,7 @@ class BaseTrainer(ABC):
             # CSV log: append row from train_metrics, val_loss_metrics, val_metrics
             if log_path_resolved is not None:
                 row = {"epoch": epoch}
+                train_metrics = {f"train_direct_{k}":v for k, v in train_metrics.items()}
                 row.update(train_metrics)
                 if val_loss_metrics is not None:
                     row.update(val_loss_metrics)
