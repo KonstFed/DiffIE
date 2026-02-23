@@ -32,6 +32,10 @@ class DiscreteTrainer(BaseTrainer):
             max_grad_norm=max_grad_norm,
         )
         self._ignore_index = -100
+
+        if self.model.scheduler.kernel == "mask_absorbing":
+            # MASK token is not present in GT, but if we get some bug loss should explode
+            class_weights = class_weights + [10.0**10]
         self.criterion = nn.CrossEntropyLoss(
             reduction="mean",
             ignore_index=self._ignore_index,
@@ -64,7 +68,7 @@ class DiscreteTrainer(BaseTrainer):
 
             # drop logits for MASK tokens
             # [B, L, K] -> [B, L, K-1]
-            logits = logits[:, :, :-1]
+            # logits = logits[:, :, :-1]
 
         # Balance class inequality: randomly ignore background (class 0) with
         # probability background_drop_prob

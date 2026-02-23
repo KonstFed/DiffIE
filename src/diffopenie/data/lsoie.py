@@ -93,7 +93,7 @@ class LSOIEDataset(Dataset):
 
         hf_dataset = load_dataset("wardenga/lsoie", trust_remote_code=True)
         dfs = [pd.DataFrame(hf_dataset[s]) for s in splits]
-        dataset = pd.concat(dfs, ignore_index=True).reset_index(drop=True)
+        dataset = pd.concat(dfs, ignore_index=True).reset_index(drop=True).iloc[:200]
         dataset["sentence"] = dataset["words"].apply(lambda x: " ".join(x))
         self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True)
 
