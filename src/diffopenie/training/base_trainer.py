@@ -692,27 +692,33 @@ class BaseTrainer(ABC):
                 df.to_csv(log_path_resolved, index=False)
                 self.plot_training_log(log_path_resolved)
 
-            # Print metrics with smart formatting (up to 20 significant digits, auto scientific)
-            metric_str = ", ".join([f"{k}={v:.20g}" for k, v in train_metrics.items()])
-            print(f"Epoch {epoch}/{num_epochs} completed. Train: {metric_str}")
 
+            # Print metrics with colors; a big mess maybe better to do in sep func
+            _c = {"r": "\033[0m", "b": "\033[1m", "dim": "\033[2m", "cyan": "\033[36m", "green": "\033[32m", "yellow": "\033[33m"}
+            _fmt = lambda v: f"{v:.4g}" if isinstance(v, (int, float)) else str(v)
+
+            rows = []
+            for k, v in train_metrics.items():
+                rows.append((f"train {k}", v))
             if train_metrics_full is not None:
-                print(
-                    f"  Train Precision: {train_metrics_full['train_precision']:.20g}, "
-                    f"Train Recall: {train_metrics_full['train_recall']:.20g}, "
-                    f"Train F1: {train_metrics_full['train_f1']:.20g}"
-                )
-
+                for key in ("train_precision", "train_recall", "train_f1"):
+                    if key in train_metrics_full:
+                        rows.append((key, train_metrics_full[key]))
             if val_loss_metrics is not None:
-                print(f"  Val loss: {val_loss_metrics['val_loss']:.20g}")
-
+                for k, v in val_loss_metrics.items():
+                    rows.append((f"val {k}", v))
             if val_metrics is not None:
-                print(
-                    f"  Val Precision: {val_metrics['precision']:.20g}, "
-                    f"Val Recall: {val_metrics['recall']:.20g}, "
-                    f"Val F1: {val_metrics['f1']:.20g}"
-                )
+                for key in ("precision", "recall", "f1"):
+                    if key in val_metrics:
+                        rows.append((f"val_full {key}", val_metrics[key]))
 
+            label_w = max(len(label) for label, _ in rows) if rows else 0
+            prefix = "  "
+
+            print(f"\n{_c['b']}{_c['cyan']}Epoch {epoch}/{num_epochs}{_c['r']}")
+            for label, value in rows:
+                pad = " " * (label_w - len(label))
+                print(f"{prefix}{_c['dim']}{label}{_c['r']}{pad}\t{_fmt(value)}")
 
             if val_metrics is not None:
                 if save_path and val_metrics['f1'] > best_f1:
@@ -720,7 +726,7 @@ class BaseTrainer(ABC):
                     self.save_checkpoint(
                         save_path, epoch, suffix="best", extra_info={"best_f1": best_f1}
                     )
-                    print(f"  New best F1: {best_f1:.4f}, saved best checkpoint")
+                    print(f"  {_c['green']}New best F1: {best_f1:.4f}, saved checkpoint{_c['r']}")
 
             # Save checkpoint
             if save_path and epoch % save_interval == 0:
