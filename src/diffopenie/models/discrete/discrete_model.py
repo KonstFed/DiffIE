@@ -198,7 +198,8 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         if self.scheduler.kernel == "mask_absorbing":
             mask_state_id = self.scheduler.mask_state_id
             if (x_t == mask_state_id).any():
-                raise ValueError("Mask state id found in the generated sequence")
+                mask_ratio = (x_t == mask_state_id).sum() / x_t.numel()
+                print("AAAAAAAAA", mask_ratio)
         return x_t
 
     # pretty utils
