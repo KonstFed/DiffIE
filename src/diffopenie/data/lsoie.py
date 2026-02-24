@@ -246,8 +246,8 @@ class SequenceLSOEIDataset(LSOIEDataset):
         label = torch.zeros(len(tokens), dtype=torch.long)
         label = label.fill_(SEQ_STR2INT["B"])
         label[subject_indices] = SEQ_STR2INT["S"]
-        label[object_indices] = SEQ_STR2INT["R"]
-        label[predicate_indices] = SEQ_STR2INT["O"]
+        label[object_indices] = SEQ_STR2INT["O"]
+        label[predicate_indices] = SEQ_STR2INT["R"]
 
         return {
             "tokens": tokens,
