@@ -453,8 +453,8 @@ class BaseTrainer(ABC):
 
         # Row 1: train and validation loss
         ax1 = fig.add_subplot(gs[0, :])
-        if "loss" in df.columns:
-            ax1.plot(epochs, df["loss"], label="Train loss", marker="o", markersize=4)
+        if "train_loss" in df.columns:
+            ax1.plot(epochs, df["train_loss"], label="Train loss", marker="o", markersize=4)
         if "val_loss" in df.columns:
             ax1.plot(
                 epochs,
