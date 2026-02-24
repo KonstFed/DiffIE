@@ -108,7 +108,7 @@ class LSOIEDataset(Dataset):
                     "Dropped %d duplicate sentence(s), keeping first occurrence.",
                     n_dropped,
                 )
-        self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True)
+        self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True).iloc[:200]
 
     def __len__(self) -> int:
         return len(self.dataset)
