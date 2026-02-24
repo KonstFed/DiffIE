@@ -1,8 +1,10 @@
+import logging
 from typing import Dict, Literal
 
 import torch
 from torch import nn
 
+from diffopenie.data import SEQ_INT2STR, SEQ_STR2INT
 from diffopenie.models.discrete.discrete_model import DiscreteModel
 from diffopenie.training.base_trainer import BaseTrainer, BaseTrainerConfig
 
@@ -74,7 +76,7 @@ class DiscreteTrainer(BaseTrainer):
         # Balance class inequality: randomly ignore background (class 0) with
         # probability background_drop_prob
         if self.background_drop_prob > 0 and self.model.training:
-            is_background = labels == 0
+            is_background = labels == SEQ_STR2INT["B"]
             contributes_to_loss = target != self._ignore_index
             r = torch.rand_like(target, dtype=torch.float32, device=target.device)
             drop = (is_background & contributes_to_loss) & (
@@ -93,6 +95,20 @@ class DiscreteTrainer(BaseTrainer):
 
 
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        # Debug: first element of batch as human-readable tokens and labels
+        # token_ids_0 = batch["token_ids"][0].tolist()
+        # sentence = self.model.encoder.tokenizer.decode(
+        #     token_ids_0, skip_special_tokens=False
+        # )
+        # tokens = self.model.encoder.tokenizer.convert_ids_to_tokens(token_ids_0)
+        # label_ids_0 = batch["label_indices"][0].tolist()
+        # labels = [SEQ_INT2STR.get(str(i), f"?{i}") for i in label_ids_0]
+        # mask = batch["attention_mask"][0].tolist()
+        # pairs = list(zip(tokens, labels, mask))[:80]
+        # log = logging.getLogger("diffopenie")
+        # log.debug("batch[0] sentence: %s", sentence)
+        # log.debug("batch[0] tokens|labels|mask: %s", pairs)
+
         loss, metrics = self._forward_loss(batch)
         loss.backward()
         # torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)

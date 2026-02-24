@@ -35,10 +35,10 @@ model:
     num_states: 4
     model_dim: 512
     ctx_dim: 768     # BERT hidden size
-    num_layers: 3
+    num_layers: 4
     num_heads: 8
     dropout: 0.2
-    fuse: "concat"
+    fuse: "sum"
   temperature: 1.0
   topk: null
 

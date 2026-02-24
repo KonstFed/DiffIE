@@ -205,26 +205,6 @@ class DiscreteModel(nn.Module, BaseTripletModel):
                     print("AAAAAAAAA", mask_number, l, mask_number / l)
         return x_t
 
-    # pretty utils
-    @staticmethod
-    def decode_predictions(predictions: torch.Tensor) -> list[str]:
-        """Decode predictions to text.
-
-        Args:
-            predictions (torch.Tensor): [L] single prediction
-
-        Returns:
-            list[str]: tags
-        """
-        ind2str = {
-            "0": "<BOS>",
-            "1": "<SUBJ>",
-            "2": "<OBJ>",
-            "3": "<PRED>",
-            "4": "<MASK>",
-        }
-        return [ind2str[str(p)] for p in predictions]
-
 
 class DiscreteModelConfig(BaseModel):
     """
