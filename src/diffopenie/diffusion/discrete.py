@@ -430,7 +430,7 @@ class D3PMSchedule:
         """
         B, L = x0.shape
         x0_oh = to_one_hot(x0, self.num_states).to(self.device, self.dtype)  # (B,L,K)
-        barQ_t = self.forward_product[t]                                     # (B,K,K)
+        barQ_t = self.forward_product[t]                                    # (B,K,K)
         return torch.einsum("blk,bkj->blj", x0_oh, barQ_t)
 
     @torch.no_grad()
@@ -480,7 +480,8 @@ class D3PMSchedule:
 
         # term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))  # x_t Q_t^T
         term_from_x0 = torch.einsum("blk,bkj->blj", x0_oh, barQ_tm1)                # x0 \barQ_{t-1}
-        term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
+        term_from_xt = torch.einsum("blj,bjk->blk", x_t_oh, Q_t)
+        # term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
 
         unnormalized = term_from_xt * term_from_x0                                  # ⊙
         return unnormalized / unnormalized.sum(dim=-1, keepdim=True).clamp_min(1e-12)
@@ -521,7 +522,8 @@ class D3PMSchedule:
         barQ_tm1 = self.forward_product[t - 1] # (B,K,K)
 
         # term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))
-        term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
+        # term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
+        term_from_xt = torch.einsum("blj,bjk->blk", x_t_oh, Q_t)
         term_from_model = torch.einsum("blk,bkj->blj", p_x0_given_xt, barQ_tm1)
 
         unnormalized = term_from_xt * term_from_model
