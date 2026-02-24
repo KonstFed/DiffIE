@@ -14,6 +14,8 @@ from torch.utils.data import DataLoader
 from pydantic import BaseModel, model_validator
 from tqdm import tqdm
 
+from diffopenie.data import SEQ_STR2INT
+
 
 class BaseTrainer(ABC):
     """
@@ -315,16 +317,16 @@ class BaseTrainer(ABC):
         # Compute metrics for each component separately
         # Background = 0, Subject = 1, Object = 2, Predicate = 3
         overlap_bg, pred_bg_count, gold_bg_count = self._compute_component_metrics(
-            pred_flat, label_flat, 0
+            pred_flat, label_flat, SEQ_STR2INT["B"]
         )
         overlap_subj, pred_subj_count, gold_subj_count = self._compute_component_metrics(
-            pred_flat, label_flat, 1
+            pred_flat, label_flat, SEQ_STR2INT["S"]
         )
         overlap_obj, pred_obj_count, gold_obj_count = self._compute_component_metrics(
-            pred_flat, label_flat, 2
+            pred_flat, label_flat, SEQ_STR2INT["O"]
         )
         overlap_pred, pred_pred_count, gold_pred_count = self._compute_component_metrics(
-            pred_flat, label_flat, 3
+            pred_flat, label_flat, SEQ_STR2INT["R"]
         )
 
         # Sum overlaps and totals across all components
