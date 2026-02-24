@@ -10,7 +10,7 @@ trainer:
   weight_decay: 0.01
   max_grad_norm: 1.0
   # Ignore class 0 (background) in loss with this probability to balance class inequality (0 = off).
-  background_drop_prob: 0.8
+  background_drop_prob: 0.0
 
 model:
   encoder:
@@ -19,7 +19,7 @@ model:
     add_special_tokens: true
   scheduler:
     num_states: 4   # O, subject, object, predicate, # make 5 for MASK
-    num_steps: 128
+    num_steps: 256
     kernel: "uniform"
     mask_state_id: 4 # only for mask
     device: "cpu"    # overridden by trainer device at runtime
@@ -33,10 +33,10 @@ model:
     #   beta_max: 0.0467
   denoiser:
     num_states: 4
-    model_dim: 256
+    model_dim: 512
     ctx_dim: 768     # BERT hidden size
-    num_layers: 3
-    num_heads: 4
+    num_layers: 5
+    num_heads: 12
     dropout: 0.0
     fuse: "sum"
   temperature: 1.0

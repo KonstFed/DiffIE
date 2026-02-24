@@ -10,7 +10,7 @@ from diffopenie.training.base_trainer import BaseTrainer, BaseTrainerConfig
 
 
 # CLASS_WEIGHTS = [0.05, 0.32, 0.32, 0.32]
-CLASS_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
+CLASS_WEIGHTS = [0.10, 0.3, 0.3, 0.3]
 
 
 class DiscreteTrainer(BaseTrainer):
@@ -96,18 +96,18 @@ class DiscreteTrainer(BaseTrainer):
 
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         # Debug: first element of batch as human-readable tokens and labels
-        # token_ids_0 = batch["token_ids"][0].tolist()
-        # sentence = self.model.encoder.tokenizer.decode(
-        #     token_ids_0, skip_special_tokens=False
-        # )
-        # tokens = self.model.encoder.tokenizer.convert_ids_to_tokens(token_ids_0)
-        # label_ids_0 = batch["label_indices"][0].tolist()
-        # labels = [SEQ_INT2STR.get(str(i), f"?{i}") for i in label_ids_0]
-        # mask = batch["attention_mask"][0].tolist()
-        # pairs = list(zip(tokens, labels, mask))[:80]
-        # log = logging.getLogger("diffopenie")
-        # log.debug("batch[0] sentence: %s", sentence)
-        # log.debug("batch[0] tokens|labels|mask: %s", pairs)
+        token_ids_0 = batch["token_ids"][0].tolist()
+        sentence = self.model.encoder.tokenizer.decode(
+            token_ids_0, skip_special_tokens=False
+        )
+        tokens = self.model.encoder.tokenizer.convert_ids_to_tokens(token_ids_0)
+        label_ids_0 = batch["label_indices"][0].tolist()
+        labels = [SEQ_INT2STR.get(str(i), f"?{i}") for i in label_ids_0]
+        mask = batch["attention_mask"][0].tolist()
+        pairs = list(zip(tokens, labels, mask))[:80]
+        log = logging.getLogger("diffopenie")
+        log.debug("batch[0] sentence: %s", sentence)
+        log.debug("batch[0] tokens|labels|mask: %s", pairs)
 
         loss, metrics = self._forward_loss(batch)
         loss.backward()
