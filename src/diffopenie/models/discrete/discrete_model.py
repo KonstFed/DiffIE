@@ -8,6 +8,7 @@ from diffopenie.diffusion.discrete import D3PMSchedule, D3PMScheduleConfig
 from diffopenie.models.discrete.denoiser import DiscreteDenoiser, DiscreteDenoiserConfig
 from diffopenie.data.triplet_utils import extract_longest_span
 
+
 def _topk_filter_logits(logits: torch.Tensor, k: int) -> torch.Tensor:
     """
     Keep only top-k logits (set others to -inf), per row.
@@ -112,7 +113,6 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             attention_mask=attention_mask,
         )
         pred_states = pred_states.cpu()
-        print("AAAAA", pred_states)
         results = []
         for i in range(len(words)):
             word_ids = encodings.word_ids(batch_index=i)
@@ -194,6 +194,11 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             p_x0 = torch.softmax(logits, dim=-1)
             x_t = self.sample_reverse(x_t, t, p_x0).to(self.device)
 
+        # check if are there any mask
+        if self.scheduler.kernel == "mask_absorbing":
+            mask_state_id = self.scheduler.mask_state_id
+            if (x_t == mask_state_id).any():
+                raise ValueError("Mask state id found in the generated sequence")
         return x_t
 
     # pretty utils
@@ -215,6 +220,7 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             "4": "<MASK>",
         }
         return [ind2str[str(p)] for p in predictions]
+
 
 class DiscreteModelConfig(BaseModel):
     """

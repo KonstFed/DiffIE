@@ -90,7 +90,7 @@ class LSOIEDataset(Dataset):
     def __init__(
         self,
         split: str | list[str] = "train",
-        drop_duplicate_sentences: bool = True, # TODO make to config
+        drop_duplicate_sentences: bool = False, # TODO make to config
     ):
         splits = [split] if isinstance(split, str) else split
         self.split = splits
@@ -108,7 +108,7 @@ class LSOIEDataset(Dataset):
                     "Dropped %d duplicate sentence(s), keeping first occurrence.",
                     n_dropped,
                 )
-        self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True).iloc[:200]
+        self.dataset = dataset.sort_values(by="sentence").reset_index(drop=True)
 
     def __len__(self) -> int:
         return len(self.dataset)

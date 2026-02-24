@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from diffopenie.evaluation.carb_eval import load_model, extract_span_text
-from diffopenie.models.base_model import BaseTripletModel
+from diffopenie.models.base_model import BaseTripletModel, Triplet
 from diffopenie.training.train_example import TrainingConfig
 from diffopenie.utils import load_config, hprint_s
 
@@ -13,25 +13,25 @@ def sample_triplets(
     model: BaseTripletModel,
     sentences: list[str],
     num_samples_per_sentence: int = 1,
-) -> list[list[tuple[str, str, str, tuple[int, int], tuple[int, int], tuple[int, int]]]]:
+) -> list[list[tuple[str, str, str], Triplet, float]]:
     """
     Sample triplets per sentence (stochastic diffusion sampling when num_samples > 1).
 
     Returns:
-        For each sentence, a list of (subject, predicate, object, sub_span, obj_span, pred_span).
+        For each sentence, a list of (subject, predicate, object, Triplet indices, confidence).
     """
     results = []
     for sentence in sentences:
         words = sentence.split()
         sentence_triplets = []
-        for _ in range(num_samples_per_sentence):
-            triplets = model.get_triplets([words])
-            (sub_span, obj_span, pred_span) = triplets[0]
+        triplets, probs = model.get_carb_prediction(words, k=num_samples_per_sentence)
+        for triplet, prob in zip(triplets, probs):
+            (sub_span, obj_span, pred_span) = triplet
             subject = extract_span_text(words, sub_span)
             predicate = extract_span_text(words, pred_span)
             object_ = extract_span_text(words, obj_span)
             sentence_triplets.append(
-                (subject, predicate, object_, sub_span, obj_span, pred_span)
+                (subject, predicate, object_, triplet, prob)
             )
         results.append(sentence_triplets)
     return results
@@ -116,10 +116,9 @@ def main():
     for sent, triplets in zip(sentences, sampled):
         words = sent.split()
         print(f"Sentence: {sent}")
-        for i, (subj, pred, obj, sub_span, obj_span, pred_span) in enumerate(triplets):
-            line = f"  [{i + 1}] ({subj} ; {pred} ; {obj})"
-            print(line)
+        for i, (subj, pred, obj, (sub_span, obj_span, pred_span), confidence) in enumerate(triplets):
             hprint_s(words, sub_span, obj_span, pred_span, legend=(i == 0))
+            print(f"  Confidence: {confidence}")
             lines.append(f"{subj} ; {pred} ; {obj}")
         print()
 
