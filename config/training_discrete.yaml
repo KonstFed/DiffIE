@@ -36,9 +36,9 @@ model:
     model_dim: 512
     ctx_dim: 768     # BERT hidden size
     num_layers: 3
-    num_heads: 12
+    num_heads: 8
     dropout: 0.2
-    fuse: "sum"
+    fuse: "cat"
   temperature: 1.0
   topk: null
 
