@@ -33,10 +33,10 @@ model:
     #   beta_max: 0.0467
   denoiser:
     num_states: 4
-    model_dim: 512
+    model_dim: 256
     ctx_dim: 768     # BERT hidden size
-    num_layers: 5
-    num_heads: 16
+    num_layers: 2
+    num_heads: 4
     dropout: 0.0
     fuse: "sum"
   temperature: 1.0
