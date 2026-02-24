@@ -19,10 +19,10 @@ model:
     freeze: true
     add_special_tokens: true
   scheduler:
-    num_states: 5   # O, subject, object, predicate, MASK
+    num_states: 4   # O, subject, object, predicate, # make 5 for MASK
     num_steps: 128
-    kernel: "mask_absorbing"
-    mask_state_id: 4
+    kernel: "uniform"
+    mask_state_id: 4 # only for mask
     device: "cpu"    # overridden by trainer device at runtime
     dtype: "float32"
     # beta_schedule:
@@ -36,7 +36,7 @@ model:
       beta_min: 1e-4
       beta_max: 0.0467
   denoiser:
-    num_states: 5
+    num_states: 4
     model_dim: 256
     ctx_dim: 768     # BERT hidden size
     num_layers: 4
