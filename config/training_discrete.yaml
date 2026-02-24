@@ -13,7 +13,6 @@ trainer:
   background_drop_prob: -1.0
 
 model:
-  temperature: 1e-8
   encoder:
     model_name: "bert-base-uncased"
     freeze: true
