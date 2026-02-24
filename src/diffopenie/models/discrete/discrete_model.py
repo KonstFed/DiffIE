@@ -188,8 +188,8 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             if self.temperature != 1.0:
                 logits = logits / max(self.temperature, 1e-8)
 
-            if self.topk is not None:
-                logits = _topk_filter_logits(logits, self.topk)
+            # if self.topk is not None:
+            #     logits = _topk_filter_logits(logits, self.topk)
 
             p_x0 = torch.softmax(logits, dim=-1)
             x_t = self.sample_reverse(x_t, t, p_x0).to(self.device)

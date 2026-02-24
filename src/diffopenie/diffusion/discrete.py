@@ -454,37 +454,37 @@ class D3PMSchedule:
     # Posterior: q(x_{t-1} | x_t, x_0)
     # ----------------------------
 
-    @torch.no_grad()
-    def posterior_distribution(self, x_t: torch.LongTensor, x0: torch.LongTensor, t: torch.LongTensor) -> torch.Tensor:
-        """
-        Compute the exact forward posterior (paper Eq. 3):
-            q(x_{t-1} | x_t, x_0)
-            = Cat( ((x_t Q_t^T) ⊙ (x_0 \bar Q_{t-1})) / Z )
+    # @torch.no_grad()
+    # def posterior_distribution(self, x_t: torch.LongTensor, x0: torch.LongTensor, t: torch.LongTensor) -> torch.Tensor:
+    #     """
+    #     Compute the exact forward posterior (paper Eq. 3):
+    #         q(x_{t-1} | x_t, x_0)
+    #         = Cat( ((x_t Q_t^T) ⊙ (x_0 \bar Q_{t-1})) / Z )
 
-        Args:
-            x_t: (B, L) state ids at time t
-            x0 : (B, L) clean state ids
-            t  : (B,) timesteps in {1..T}
+    #     Args:
+    #         x_t: (B, L) state ids at time t
+    #         x0 : (B, L) clean state ids
+    #         t  : (B,) timesteps in {1..T}
 
-        Returns:
-            probs_x_tm1_given_xt_x0: (B, L, K)
-        """
-        if not (t >= 1).all():
-            raise ValueError("t must be in {1..T}")
+    #     Returns:
+    #         probs_x_tm1_given_xt_x0: (B, L, K)
+    #     """
+    #     if not (t >= 1).all():
+    #         raise ValueError("t must be in {1..T}")
 
-        x_t_oh = to_one_hot(x_t, self.num_states).to(self.device, self.dtype)  # (B,L,K)
-        x0_oh  = to_one_hot(x0,  self.num_states).to(self.device, self.dtype)  # (B,L,K)
+    #     x_t_oh = to_one_hot(x_t, self.num_states).to(self.device, self.dtype)  # (B,L,K)
+    #     x0_oh  = to_one_hot(x0,  self.num_states).to(self.device, self.dtype)  # (B,L,K)
 
-        Q_t = self.forward_transition[t - 1]         # (B,K,K) with Q_t at index t-1
-        barQ_tm1 = self.forward_product[t - 1]       # (B,K,K) is \bar Q_{t-1}
+    #     Q_t = self.forward_transition[t - 1]         # (B,K,K) with Q_t at index t-1
+    #     barQ_tm1 = self.forward_product[t - 1]       # (B,K,K) is \bar Q_{t-1}
 
-        # term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))  # x_t Q_t^T
-        term_from_x0 = torch.einsum("blk,bkj->blj", x0_oh, barQ_tm1)                # x0 \barQ_{t-1}
-        term_from_xt = torch.einsum("blj,bjk->blk", x_t_oh, Q_t)
-        # term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
+    #     # term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))  # x_t Q_t^T
+    #     term_from_x0 = torch.einsum("blk,bkj->blj", x0_oh, barQ_tm1)                # x0 \barQ_{t-1}
+    #     term_from_xt = torch.einsum("blj,bjk->blk", x_t_oh, Q_t)
+    #     # term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
 
-        unnormalized = term_from_xt * term_from_x0                                  # ⊙
-        return unnormalized / unnormalized.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+    #     unnormalized = term_from_xt * term_from_x0                                  # ⊙
+    #     return unnormalized / unnormalized.sum(dim=-1, keepdim=True).clamp_min(1e-12)
 
     # ----------------------------
     # Reverse: p_θ(x_{t-1} | x_t) from x0-pred (paper Eq. 4)
@@ -523,8 +523,13 @@ class D3PMSchedule:
 
         # term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))
         # term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
-        term_from_xt = torch.einsum("blj,bjk->blk", x_t_oh, Q_t)
-        term_from_model = torch.einsum("blk,bkj->blj", p_x0_given_xt, barQ_tm1)
+        # term_from_xt = torch.einsum("blj,bjk->blk", x_t_oh, Q_t)
+        # term_from_model = torch.einsum("blk,bkj->blj", p_x0_given_xt, barQ_tm1)
+
+        term_from_xt = x_t_oh.matmul(Q_t.transpose(-1, -2))    # (B,L,K)
+
+        # (p(x0|xt) barQ_{t-1})
+        term_from_model = p_x0_given_xt.matmul(barQ_tm1)       # (B,L,K)
 
         unnormalized = term_from_xt * term_from_model
         return unnormalized / unnormalized.sum(dim=-1, keepdim=True).clamp_min(1e-12)
