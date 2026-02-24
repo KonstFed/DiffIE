@@ -7,6 +7,7 @@ from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
 from diffopenie.diffusion.discrete import D3PMSchedule, D3PMScheduleConfig
 from diffopenie.models.discrete.denoiser import DiscreteDenoiser, DiscreteDenoiserConfig
 from diffopenie.data.triplet_utils import extract_longest_span
+from diffopenie.data import SEQ_INT2STR, SEQ_STR2INT
 
 
 def _topk_filter_logits(logits: torch.Tensor, k: int) -> torch.Tensor:
@@ -116,9 +117,9 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         results = []
         for i in range(len(words)):
             word_ids = encodings.word_ids(batch_index=i)
-            sub_span = extract_longest_span((pred_states[i] == 1), word_ids)
-            obj_span = extract_longest_span((pred_states[i] == 2), word_ids)
-            pred_span = extract_longest_span((pred_states[i] == 3), word_ids)
+            sub_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["S"]), word_ids)
+            obj_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["O"]), word_ids)
+            pred_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["R"]), word_ids)
             results.append(
                 (
                     sub_span if sub_span is not None else (0, 0),
