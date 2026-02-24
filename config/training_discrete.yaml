@@ -19,7 +19,7 @@ model:
     add_special_tokens: true
   scheduler:
     num_states: 5   # O, subject, object, predicate, # make 5 for MASK
-    num_steps: 512
+    num_steps: 128
     kernel: "mask_absorbing"
     mask_state_id: 4 # only for mask
     device: "cpu"    # overridden by trainer device at runtime
@@ -33,9 +33,9 @@ model:
       beta_max: 0.0467
   denoiser:
     num_states: 5
-    model_dim: 512
+    model_dim: 256
     ctx_dim: 768     # BERT hidden size
-    num_layers: 5
+    num_layers: 3
     num_heads: 8
     dropout: 0.0
     fuse: "sum"
