@@ -95,7 +95,7 @@ class DiscreteTrainer(BaseTrainer):
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         loss, metrics = self._forward_loss(batch)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        # torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
         self.optimizer.step()
         self.optimizer.zero_grad()
         metrics.update({"loss": loss.item()})
