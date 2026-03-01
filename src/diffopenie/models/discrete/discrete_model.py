@@ -1,6 +1,6 @@
 from torch import nn
 import torch
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from diffopenie.models.base_model import BaseTripletModel
 from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
@@ -212,6 +212,7 @@ class DiscreteModelConfig(BaseModel):
     Composes encoder, scheduler, denoiser configs; create() builds the model.
     """
 
+    model_config = ConfigDict(extra="forbid")
     encoder: BERTEncoderConfig
     scheduler: D3PMScheduleConfig
     denoiser: DiscreteDenoiserConfig

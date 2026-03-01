@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class AdaLayerNorm(nn.Module):
@@ -200,6 +200,7 @@ class DiffusionSLDenoiserConfig(BaseModel):
     Acts as a factory for creating DiffusionSLDenoiser instances.
     """
 
+    model_config = ConfigDict(extra="forbid")
     x_dim: int  # Dimension of x_t / x0 (label embeddings)
     bert_dim: int  # Dimension of BERT token embeddings
     num_steps: int = 1000

@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from diffopenie.models.encoder import BERTEncoderConfig
 from diffopenie.models.detie.detie_model import DetIEModel
@@ -11,6 +11,7 @@ from diffopenie.models.detie.detie_model import DetIEModel
 class DetIEModelConfig(BaseModel):
     """Config for DetIE model (encoder + slot decoder + bipartite matching)."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["detie"] = "detie"
     encoder: BERTEncoderConfig
     num_slots: int = 20

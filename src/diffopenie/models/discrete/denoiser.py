@@ -1,7 +1,7 @@
 import math
 import torch
 from torch import nn
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class SinusoidalTimeEmbedding(nn.Module):
@@ -164,6 +164,7 @@ class DiscreteDenoiserConfig(BaseModel):
     Acts as a factory for creating DiscreteDenoiser instances.
     """
 
+    model_config = ConfigDict(extra="forbid")
     num_states: int   # K
     model_dim: int    # D
     ctx_dim: int      # D_ctx (dimension of token_embeddings)

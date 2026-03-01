@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 from typing import Dict
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from diffopenie.models.sequence.denoiser import (
     DiffusionSLDenoiser,
@@ -267,6 +267,7 @@ class EmbeddingLabelMapperConfig(BaseModel):
     Acts as a factory for creating EmbeddingLabelMapper instances.
     """
 
+    model_config = ConfigDict(extra="forbid")
     num_classes: int = 4
     embedding_dim: int = 256
 
@@ -298,6 +299,7 @@ class DiffusionSequenceLabelerConfig(BaseModel):
     create() is called.
     """
 
+    model_config = ConfigDict(extra="forbid")
     encoder: BERTEncoderConfig
     label_mapper: EmbeddingLabelMapperConfig
     scheduler: LinearSchedulerConfig

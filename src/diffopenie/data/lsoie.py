@@ -6,7 +6,7 @@ from typing import Literal
 import pandas as pd
 import torch
 from datasets import load_dataset
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
@@ -259,6 +259,7 @@ class SequenceLSOEIDataset(LSOIEDataset):
 class SpanLSOEIDatasetConfig(BaseModel):
     """Configuration for SpanLSOIEDataset."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["span"] = "span"
     split: str | list[str] = "train"
     tokenizer_name: str = "bert-base-uncased"
@@ -275,6 +276,7 @@ class SpanLSOEIDatasetConfig(BaseModel):
 class SequenceLSOEIDatasetConfig(BaseModel):
     """Configuration for SequenceLSOEIDataset."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["sequence"] = "sequence"
     split: str | list[str] = "train"
     tokenizer_name: str = "bert-base-uncased"

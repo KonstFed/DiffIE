@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class BERTEncoder(nn.Module):
@@ -108,6 +108,7 @@ class BERTEncoderConfig(BaseModel):
     Acts as a factory for creating BERTEncoder instances.
     """
 
+    model_config = ConfigDict(extra="forbid")
     model_name: str = "bert-base-uncased"
     freeze: bool = True
     add_special_tokens: bool = True

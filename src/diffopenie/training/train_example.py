@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Annotated, Optional, Union
 from torch.utils.data import DataLoader
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from diffopenie.utils import load_config
 from diffopenie.training.sequence_trainer import DiffusionTrainerConfig
@@ -43,6 +43,8 @@ def _dataset_type_for_collator(cfg: DatasetConfigUnion) -> str:
 
 class DataConfig(BaseModel):
     """Configuration for data loading."""
+
+    model_config = ConfigDict(extra="forbid")
     train_dataset: DatasetConfigUnion | None = None
     val_dataset: DatasetConfigUnion | None = None
     dataset: DatasetConfigUnion | None = None  # legacy: used for both train and val
@@ -76,6 +78,7 @@ class TrainingConfig(BaseModel):
     - data_config: Configuration for data loading (dataset, dataloader settings)
     """
 
+    model_config = ConfigDict(extra="forbid")
     trainer: Annotated[
         Union[
             DiffusionTrainerConfig,

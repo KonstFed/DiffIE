@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class BaseDenoiser(ABC):
@@ -175,6 +175,7 @@ class LinearSchedulerConfig(BaseModel):
     Acts as a factory for creating LinearScheduler instances.
     """
 
+    model_config = ConfigDict(extra="forbid")
     num_steps: int  # Number of diffusion steps
     beta_start: float = 0.0001  # Starting beta value
     beta_end: float = 0.02  # Ending beta value

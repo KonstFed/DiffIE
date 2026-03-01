@@ -2,7 +2,7 @@ import math
 from typing import Annotated, Literal, Union
 
 import torch
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ------------------------------------------------------------
 # Utilities
@@ -205,6 +205,7 @@ class MIBetaSchedule:
 class CosineBetaScheduleConfig(BaseModel):
     """Config for cosine beta schedule. Use with beta_schedule subconfig."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["cosine"] = "cosine"
     s: float = 0.008
 
@@ -223,6 +224,7 @@ class CosineBetaScheduleConfig(BaseModel):
 class LinearBetaScheduleConfig(BaseModel):
     """Config for linear beta schedule. Use with beta_schedule subconfig."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["linear"] = "linear"
     beta_start: float = 0.0001
     beta_end: float = 0.02
@@ -246,6 +248,7 @@ class LinearBetaScheduleConfig(BaseModel):
 class MIBetaScheduleConfig(BaseModel):
     """Config for mutual-information (absorbing) beta schedule. Use with beta_schedule subconfig."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["mi"] = "mi"
     s_T: float = 0.1
     mode: Literal["linear", "cosine"] = "linear"
@@ -564,6 +567,7 @@ class D3PMScheduleConfig(BaseModel):
     Use beta_schedule subconfig (cosine / linear / mi) for clear per-schedule params.
     """
 
+    model_config = ConfigDict(extra="forbid")
     num_states: int = 5
     num_steps: int
     kernel: str = "mask_absorbing"  # "uniform" or "mask_absorbing"

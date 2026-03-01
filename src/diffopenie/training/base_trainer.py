@@ -11,7 +11,7 @@ from matplotlib.gridspec import GridSpec
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 from tqdm import tqdm
 
 from diffopenie.data import SEQ_STR2INT
@@ -823,6 +823,7 @@ class BaseTrainerConfig(BaseModel):
     Acts as a factory for creating BaseTrainer instances.
     """
 
+    model_config = ConfigDict(extra="forbid")
     device: Optional[str] = None  # None = auto-detect (cuda if available, else cpu)
     learning_rate: float = 1e-4
     weight_decay: float = 0.01

@@ -3,7 +3,7 @@ import logging
 from typing import Annotated, Literal, Union
 
 import torch
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from torch.utils.data import Dataset
 from tqdm import trange
 
@@ -125,6 +125,7 @@ DatasetConfig = Annotated[
 class CachedDatasetConfig(BaseModel):
     """Configuration for CachedDataset: list of LSOIE dataset configs + encoder."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["cached"] = "cached"
     datasets: list[DatasetConfig]
     encoder: BERTEncoderConfig | None = None

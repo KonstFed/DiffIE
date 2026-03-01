@@ -7,7 +7,7 @@ from typing import Literal
 
 import pandas as pd
 import torch
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
@@ -199,6 +199,7 @@ class SequenceImojieDataset(Dataset):
 class SequenceImojieDatasetConfig(BaseModel):
     """Configuration for SequenceImojieDataset."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["imojie"] = "imojie"
     path: str
     tokenizer_name: str = "bert-base-uncased"

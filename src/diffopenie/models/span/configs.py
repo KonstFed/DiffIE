@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from diffopenie.models.encoder import BERTEncoderConfig
 from diffopenie.models.span.label_mapper import ContinuousSpanMapper, FloatIndexMapper
@@ -16,6 +16,7 @@ from diffopenie.models.span.diffusionNER import DiffusionNERDenoiser
 class FloatIndexMapperConfig(BaseModel):
     """Config for FloatIndexMapper (span indices -> float indices)."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["float_index"] = "float_index"
 
     def create(self) -> FloatIndexMapper:
@@ -25,6 +26,7 @@ class FloatIndexMapperConfig(BaseModel):
 class ContinuousSpanMapperConfig(BaseModel):
     """Config for ContinuousSpanMapper (span indices -> logits)."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["continuous"] = "continuous"
 
     logit_value: float = 1.0
@@ -43,6 +45,7 @@ LabelMapperConfig = FloatIndexMapperConfig | ContinuousSpanMapperConfig
 class DiffusionNERDenoiserConfig(BaseModel):
     """Config for DiffusionNERDenoiser (diffusion NER denoiser)."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["diffusion_ner"] = "diffusion_ner"
     label_mapper: FloatIndexMapperConfig
     embedder_dim: int = 768
@@ -72,6 +75,7 @@ class DiffusionNERDenoiserConfig(BaseModel):
 class SlotDenoiserConfig(BaseModel):
     """Config for SpanDenoiser (slot decoder + pointer)."""
 
+    model_config = ConfigDict(extra="forbid")
     type: Literal["slot"] = "slot"
     bert_dim: int = 768
     num_steps: int = 1000
@@ -104,6 +108,7 @@ DenoiserConfig = Annotated[
 class SpanDiffusionModelConfig(BaseModel):
     """Config for SpanDiffusionModel (encoder + label_mapper + scheduler + denoiser)."""
 
+    model_config = ConfigDict(extra="forbid")
     encoder: BERTEncoderConfig | None = None
     label_mapper: LabelMapperConfig
     scheduler: LinearSchedulerConfig
