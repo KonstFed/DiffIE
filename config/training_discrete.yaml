@@ -14,7 +14,7 @@ trainer:
 model:
   encoder:
     model_name: "bert-base-uncased"
-    freeze: false   # set true to freeze BERT; false to fine-tune alongside the denoiser
+    freeze: true   # set true to freeze BERT; false to fine-tune alongside the denoiser
     add_special_tokens: true
   scheduler:
     num_states: 5   # O, subject, object, predicate, # make 5 for MASK

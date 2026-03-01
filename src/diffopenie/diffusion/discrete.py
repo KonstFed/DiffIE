@@ -538,6 +538,48 @@ class D3PMSchedule:
         return unnormalized / unnormalized.sum(dim=-1, keepdim=True).clamp_min(1e-12)
 
     @torch.no_grad()
+    def reverse_distribution_exact(
+        self,
+        x_t: torch.LongTensor,          # (B,L)
+        t: torch.LongTensor,            # (B,) in 1..T
+        p_x0_given_xt: torch.Tensor,    # (B,L,K)
+    ) -> torch.Tensor:
+        """
+        Exact D3PM Eq.(4) for small K by enumerating x0:
+            p = sum_{x0} q(x_{t-1}|x_t,x0) * p_theta(x0|x_t)
+        where q(...) is normalized PER x0.
+        """
+        B, L = x_t.shape
+        K = self.num_states
+
+        x_t_oh = to_one_hot(x_t, K).to(self.device, self.dtype)           # (B,L,K)
+        p_x0_given_xt = p_x0_given_xt.to(self.device, self.dtype)         # (B,L,K)
+
+        Q_t = self.forward_transition[t - 1]                              # (B,K,K)
+        barQ_tm1 = self.forward_product[t - 1]                            # (B,K,K)
+
+        # a = x_t Q_t^T  -> (B,L,K)
+        a = x_t_oh.matmul(Q_t.transpose(-1, -2))                          # (B,L,K)
+
+        out = torch.zeros((B, L, K), device=self.device, dtype=self.dtype)
+        eye = torch.eye(K, device=self.device, dtype=self.dtype)
+
+        for k in range(K):
+            # b_k = e_k \barQ_{t-1}
+            e_k = eye[k].view(1, 1, K).expand(B, L, K)                    # (B,L,K)
+            b_k = e_k.matmul(barQ_tm1)                                     # (B,L,K)
+
+            # q_k(x_{t-1}|x_t, x0=k) ∝ a ⊙ b_k, normalized per position
+            qk_unnorm = a * b_k
+            qk = qk_unnorm / qk_unnorm.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+
+            # mix with p_theta(x0=k | x_t)
+            w = p_x0_given_xt[..., k].unsqueeze(-1)                        # (B,L,1)
+            out += w * qk
+
+        return out / out.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+
+    @torch.no_grad()
     def sample_reverse(
         self,
         x_t: torch.LongTensor,
@@ -555,7 +597,8 @@ class D3PMSchedule:
         Returns:
             x_{t-1}: (B, L)
         """
-        probs = self._reverse_distribution(x_t, t, p_x0_given_xt)
+        # probs = self._reverse_distribution(x_t, t, p_x0_given_xt)
+        probs = self.reverse_distribution_exact(x_t, t, p_x0_given_xt)
         return sample_categorical(probs)
 
 
