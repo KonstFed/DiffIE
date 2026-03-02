@@ -98,8 +98,8 @@ class TrainingLogger:
             return
 
         plot_path = self.log_path.parent / f"{self.log_path.stem}_plots.png"
-        fig = plt.figure(figsize=(12, 14))
-        gs = GridSpec(5, 4, figure=fig)
+        fig = plt.figure(figsize=(12, 16))
+        gs = GridSpec(6, 4, figure=fig)
         epochs = df["epoch"]
 
         ax1 = fig.add_subplot(gs[0, :])
@@ -121,8 +121,15 @@ class TrainingLogger:
         ax3.set_title("CaRB validation metrics")
         ax3.grid(True, alpha=0.3)
 
+        ax4 = fig.add_subplot(gs[3, :], sharex=ax1)
+        _plot_cols(ax4, df, epochs, [
+            ("train_precision", "P"), ("train_recall", "R"), ("train_f1", "F1"),
+        ])
+        ax4.set_title("CaRB train subset metrics")
+        ax4.grid(True, alpha=0.3)
+
         for c, name in enumerate(CLASS_NAMES):
-            ax = fig.add_subplot(gs[3, c], sharex=ax1)
+            ax = fig.add_subplot(gs[4, c], sharex=ax1)
             _plot_cols(ax, df, epochs, [
                 (f"train_precision_{name}", "P"),
                 (f"train_recall_{name}", "R"),
@@ -133,7 +140,7 @@ class TrainingLogger:
             ax.grid(True, alpha=0.3)
 
         for c, name in enumerate(CLASS_NAMES):
-            ax = fig.add_subplot(gs[4, c], sharex=ax1)
+            ax = fig.add_subplot(gs[5, c], sharex=ax1)
             _plot_cols(ax, df, epochs, [
                 (f"precision_{name}", "P"),
                 (f"recall_{name}", "R"),
@@ -156,7 +163,7 @@ class TrainingLogger:
         vals = per_t_loss.cpu().numpy()
 
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(t_vals, vals, linewidth=1)
+        ax.bar(t_vals, vals, width=0.8)
         ax.set_xlabel("Timestep t")
         ax.set_ylabel("Avg loss")
         ax.set_title(f"Per-timestep loss (epoch {epoch})")

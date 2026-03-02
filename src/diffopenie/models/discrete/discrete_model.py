@@ -194,13 +194,13 @@ class DiscreteModel(nn.Module, BaseTripletModel):
                 x_t = torch.where(remask, torch.full_like(x_t, mask_state_id), x_t)
 
         # check if are there any mask DEBUG
-        if self.scheduler.kernel == "mask_absorbing":
-            mask_state_id = self.scheduler.mask_state_id
-            for sample_ind in range(batch_size):
-                if (x_t[sample_ind] == mask_state_id).any():
-                    l = attention_mask[sample_ind].sum()
-                    mask_number = (x_t == mask_state_id).sum()
-                    print("AAAAAAAAA", mask_number, l, mask_number / l)
+        # if self.scheduler.kernel == "mask_absorbing":
+        #     mask_state_id = self.scheduler.mask_state_id
+        #     for sample_ind in range(batch_size):
+        #         if (x_t[sample_ind] == mask_state_id).any():
+        #             l = attention_mask[sample_ind].sum()
+        #             mask_number = (x_t == mask_state_id).sum()
+        #             print("AAAAAAAAA", mask_number, l, mask_number / l)
         return x_t
 
 
