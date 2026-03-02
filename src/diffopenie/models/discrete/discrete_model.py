@@ -30,6 +30,10 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         denoiser: DiscreteDenoiser,
         temperature: float = 1.0,
         topk: int | None = None,
+        argmax: bool = False,
+        use_remasking: bool = False,
+        remask_threshold_low: float = 0.3,
+        remask_threshold_high: float = 1.0,
     ):
         super().__init__()
         self.encoder = encoder
@@ -37,6 +41,10 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         self.denoiser = denoiser
         self.temperature = temperature
         self.topk = topk
+        self.argmax = argmax
+        self.use_remasking = use_remasking
+        self.remask_threshold_low = remask_threshold_low
+        self.remask_threshold_high = remask_threshold_high
 
     @property
     def device(self) -> torch.device:
@@ -139,32 +147,13 @@ class DiscreteModel(nn.Module, BaseTripletModel):
     ) -> torch.LongTensor:
         """
         Reverse diffusion sampling loop (paper Eq. 4 construction).
-
-        For t = T..1:
-        1) Predict p_θ(x0 | x_t, t) with the denoiser:
-            logits = denoiser(x_t, t, **condition)              # (B, L, K)
-            p_x0   = softmax(logits / temperature)
-
-        2) Form reverse transition distribution (paper Eq. 4, matrix form):
-            p_θ(x_{t-1} | x_t) ∝ (x_t Q_t^T) ⊙ (p_θ(x0|x_t) \bar Q_{t-1})
-
-        3) Sample x_{t-1} ~ p_θ(x_{t-1} | x_t)
-
-        Initialization (x_T):
-        - kernel == "mask_absorbing": x_T := MASK everywhere
-        - kernel == "uniform":        x_T ~ Uniform({0..K-1}) i.i.d.
-
-        Args:
-            batch_size: batch size
-            token_embeddings: (B, L, ctx_dim) token embeddings
-            attention_mask: (B, L) attention mask
-
-        Returns:
-            x0_sample: (B, L) sampled clean states
+        Uses config: temperature/argmax, use_remasking, remask_threshold_*.
         """
         B = batch_size
         L = token_embeddings.shape[1]
         K = self.num_states
+        T = self.scheduler.num_steps
+        mask_state_id = self.scheduler.mask_state_id if self.scheduler.kernel == "mask_absorbing" else None
 
         # Initialize x_T
         if self.scheduler.kernel == "mask_absorbing":
@@ -177,7 +166,7 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         else:
             x_t = torch.randint(0, K, (B, L), device=self.device, dtype=torch.long)
 
-        for ti in range(self.scheduler.num_steps, 0, -1):
+        for ti in range(T, 0, -1):
             t = torch.full((B,), ti, device=self.device, dtype=torch.long)
 
             logits = self.denoiser(
@@ -186,14 +175,23 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             if logits.shape != (B, L, K):
                 raise ValueError(f"denoiser must return logits of shape {(B, L, K)}")
 
-            if self.temperature != 1.0:
-                logits = logits / max(self.temperature, 1e-8)
+            temp = 0.0 if self.argmax else self.temperature
+            if temp != 1.0:
+                logits = logits / max(temp, 1e-8)
 
             # if self.topk is not None:
             #     logits = _topk_filter_logits(logits, self.topk)
 
             p_x0 = torch.softmax(logits, dim=-1)
             x_t = self.sample_reverse(x_t, t, p_x0).to(self.device)
+
+            if self.use_remasking and mask_state_id is not None:
+                confidence = p_x0.max(dim=-1).values  # (B, L)
+                threshold = self.remask_threshold_low + (self.remask_threshold_high - self.remask_threshold_low) * (ti / T)
+                remask = confidence < threshold
+                # only remask within valid tokens
+                remask = remask & attention_mask.to(torch.bool)
+                x_t = torch.where(remask, torch.full_like(x_t, mask_state_id), x_t)
 
         # check if are there any mask DEBUG
         if self.scheduler.kernel == "mask_absorbing":
@@ -218,6 +216,10 @@ class DiscreteModelConfig(BaseModel):
     denoiser: DiscreteDenoiserConfig
     temperature: float = 1.0
     topk: int | None = None
+    argmax: bool = False
+    use_remasking: bool = False
+    remask_threshold_low: float = 0.3
+    remask_threshold_high: float = 1.0
 
     def create(self) -> DiscreteModel:
         """Build DiscreteModel from configs."""
@@ -227,4 +229,8 @@ class DiscreteModelConfig(BaseModel):
             denoiser=self.denoiser.create(),
             temperature=self.temperature,
             topk=self.topk,
+            argmax=self.argmax,
+            use_remasking=self.use_remasking,
+            remask_threshold_low=self.remask_threshold_low,
+            remask_threshold_high=self.remask_threshold_high,
         )
