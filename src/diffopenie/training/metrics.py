@@ -24,7 +24,7 @@ def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
     return p, r, f
 
 
-@dataclass(frozen=True)
+@dataclass
 class MetricsResult:
     """Token-overlap P/R/F1 for triplet extraction."""
 
