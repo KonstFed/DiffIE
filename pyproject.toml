@@ -21,6 +21,7 @@ dependencies = [
     "pytest>=9.0.2",
     "scikit-learn>=1.0.0",
     "pydantic>=2.12.5",
+    "torchmetrics>=1.0.0",
 ]
 
 [tool.poetry]
