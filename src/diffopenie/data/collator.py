@@ -49,12 +49,16 @@ class SequenceCollator:
         token_ids_list = [
             torch.tensor(item["token_ids"], dtype=torch.long) for item in batch
         ]
+        lengths = [t.size(0) for t in token_ids_list]
         token_ids = pad_sequence(
             token_ids_list,
             batch_first=True,
             padding_value=self.pad_token_id,
         )  # [B, L]
-        attention_mask = (token_ids != self.pad_token_id).long()  # [B, L]
+        max_len = token_ids.size(1)
+        attention_mask = torch.zeros(len(batch), max_len, dtype=torch.long)
+        for i, l in enumerate(lengths):
+            attention_mask[i, :l] = 1
         return token_ids, attention_mask
 
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:

@@ -57,47 +57,49 @@ class BERTEncoder(nn.Module):
             token_embeddings: [B, L, bert_dim] (same length as input, excluding special tokens)
         """
         if self.add_special_tokens:
-            # Add CLS token at the beginning and SEP token at the end
             B, L = input_ids.shape
             device = input_ids.device
 
-            # Create new input_ids with special tokens
-            cls_tokens = torch.full(
-                (B, 1), self.cls_token_id, dtype=torch.long, device=device
-            )
-            sep_tokens = torch.full(
-                (B, 1), self.sep_token_id, dtype=torch.long, device=device
-            )
-            input_ids_with_special = torch.cat(
-                [cls_tokens, input_ids, sep_tokens], dim=1
-            )  # [B, L+2]
-
-            # Update attention mask
             if attention_mask is not None:
-                cls_mask = torch.ones((B, 1), dtype=attention_mask.dtype, device=device)
-                sep_mask = torch.ones((B, 1), dtype=attention_mask.dtype, device=device)
-                attention_mask_with_special = torch.cat(
-                    [cls_mask, attention_mask, sep_mask], dim=1
-                )  # [B, L+2]
+                lengths = attention_mask.sum(dim=1).long()  # [B] real token count
             else:
-                attention_mask_with_special = None
+                lengths = torch.full((B,), L, dtype=torch.long, device=device)
+
+            # [B, L+2]: CLS <real tokens> SEP <PAD ...>
+            new_ids = torch.full(
+                (B, L + 2), self.tokenizer.pad_token_id,
+                dtype=torch.long, device=device,
+            )
+            new_mask = torch.zeros(
+                (B, L + 2), dtype=torch.long, device=device,
+            )
+
+            new_ids[:, 0] = self.cls_token_id
+            new_mask[:, 0] = 1
+
+            # Copy real tokens and place SEP right after each sample
+            for i in range(B):
+                sl = lengths[i]
+                new_ids[i, 1 : 1 + sl] = input_ids[i, :sl]
+                new_mask[i, 1 : 1 + sl] = 1
+                new_ids[i, 1 + sl] = self.sep_token_id
+                new_mask[i, 1 + sl] = 1
+
+            outputs = self.model(input_ids=new_ids, attention_mask=new_mask)
+            hidden = outputs.last_hidden_state  # [B, L+2, bert_dim]
+
+            # Extract only real-token embeddings (skip CLS and SEP)
+            token_embeddings = torch.zeros(
+                B, L, self.bert_dim, dtype=hidden.dtype, device=device,
+            )
+            for i in range(B):
+                sl = lengths[i]
+                token_embeddings[i, :sl] = hidden[i, 1 : 1 + sl]
         else:
-            input_ids_with_special = input_ids
-            attention_mask_with_special = attention_mask
-
-        outputs = self.model(
-            input_ids=input_ids_with_special,
-            attention_mask=attention_mask_with_special,
-        )
-        # Use last hidden state (token embeddings)
-        token_embeddings = (
-            outputs.last_hidden_state
-        )  # [B, L+2, bert_dim] or [B, L, bert_dim]
-
-        # If we added special tokens, remove them from the output to maintain length consistency
-        if self.add_special_tokens:
-            # Remove CLS (first) and SEP (last) token embeddings
-            token_embeddings = token_embeddings[:, 1:-1, :]  # [B, L, bert_dim]
+            outputs = self.model(
+                input_ids=input_ids, attention_mask=attention_mask,
+            )
+            token_embeddings = outputs.last_hidden_state
 
         return token_embeddings
 

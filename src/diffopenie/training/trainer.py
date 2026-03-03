@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from diffopenie.data import SEQ_STR2INT
 from diffopenie.models.discrete.discrete_model import DiscreteModel
+from diffopenie.utils import hprint
 from diffopenie.training.logger import TrainingLogger
 from diffopenie.training.metrics import (
     EpochResult,
@@ -21,7 +22,7 @@ from diffopenie.training.metrics import (
     TripletMetrics,
 )
 
-DEFAULT_CLASS_WEIGHTS = [0.10, 0.3, 0.3, 0.3]
+DEFAULT_CLASS_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
 IGNORE_INDEX = -100
 
 
@@ -81,6 +82,18 @@ class Trainer:
         """Noise labels, denoise, compute masked CE loss."""
         token_ids, attention_mask, labels = self._to_device(batch)
         B, L = token_ids.shape
+
+        # # DEBUG: convert token_ids to tokens (first sample only) and print S/O/R with colour
+        # tokenizer = self.model.encoder.tokenizer
+        # first_ids = token_ids[0].cpu().tolist()
+        # tokens = tokenizer.convert_ids_to_tokens(first_ids)
+        # print("[DEBUG] token_ids[0] -> tokens:", tokens)
+        # first_labels = labels[0].cpu().tolist()
+        # subject_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["S"]]
+        # object_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["O"]]
+        # relation_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["R"]]
+        # print("[DEBUG] subject/object/relation tokens:")
+        # hprint(tokens, subject_ind, object_ind, relation_ind, legend=True)
 
         token_emb = self.model.encode_tokens(token_ids, attention_mask)
         t = self.model.scheduler.sample_t(B)
