@@ -6,7 +6,7 @@
 trainer:
   type: "discrete_trainer"
   device: null
-  learning_rate: 2e-5
+  learning_rate: 1e-4
   # learning_rate: 1e-3
   weight_decay: 0.01
   # Ignore class 0 (background) in loss with this probability to balance class inequality (0 = off).
@@ -65,10 +65,10 @@ data:
   train_dataset:
     type: "cached"
     datasets:
-      - type: "imojie"
-        path: "dataset/data/train/4cr_qpbo_extractions.tsv"
-        tokenizer_name: "bert-base-uncased"
-        min_success_pct: 100.0
+      # - type: "imojie"
+      #   path: "dataset/data/train/4cr_qpbo_extractions.tsv"
+      #   tokenizer_name: "bert-base-uncased"
+      #   min_success_pct: 100.0
       - type: "sequence"
         split: "train"
         tokenizer_name: "bert-base-uncased"
