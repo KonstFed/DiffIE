@@ -49,13 +49,12 @@ model:
     num_heads: 8
     dropout: 0.0
     fuse: "sum"
-    # time_embed: "cosine" | "learnable"; if learnable, set num_timesteps to match scheduler.num_steps
-    time_embed: "learnable"
+    time_embed: "none"
     num_timesteps: 128   # required when time_embed: "learnable"
   temperature: 1.0
   topk: null
-  argmax: true
-  use_remasking: true
+  argmax: false
+  use_remasking: false
   remask_threshold_low: 0.3   # at t=1
   remask_threshold_high: 0.9  # at t=T
 

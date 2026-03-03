@@ -99,6 +99,8 @@ class DiscreteDenoiser(nn.Module):
     Fusion options:
       - fuse="sum":  project x_t embedding and token_embeddings into same dim and add
       - fuse="concat": concatenate then project
+
+    Time embedding: set time_embed="none" to train without timestep conditioning.
     """
     def __init__(
         self,
@@ -110,14 +112,14 @@ class DiscreteDenoiser(nn.Module):
         num_heads: int = 4,
         dropout: float = 0.0,
         fuse: str = "sum",        # "sum" or "concat"
-        time_embed: str = "cosine",  # "cosine" or "learnable"
+        time_embed: str = "cosine",  # "cosine", "learnable", or "none"
         num_timesteps: int | None = None,  # required when time_embed == "learnable"
     ):
         super().__init__()
         if fuse not in {"sum", "concat"}:
             raise ValueError("fuse must be 'sum' or 'concat'")
-        if time_embed not in {"cosine", "learnable"}:
-            raise ValueError("time_embed must be 'cosine' or 'learnable'")
+        if time_embed not in {"cosine", "learnable", "none"}:
+            raise ValueError("time_embed must be 'cosine', 'learnable', or 'none'")
         if time_embed == "learnable" and (num_timesteps is None or num_timesteps <= 0):
             raise ValueError("num_timesteps must be set and > 0 when time_embed == 'learnable'")
 
@@ -129,11 +131,13 @@ class DiscreteDenoiser(nn.Module):
         # Embed discrete states x_t (token ids in {0..K-1})
         self.state_embed = nn.Embedding(num_states, model_dim)
 
-        # Time embedding (B, D) then broadcast to (B, L, D)
+        # Time embedding (B, D) then broadcast to (B, L, D); None when time_embed == "none"
         if time_embed == "cosine":
             self.time_embed = SinusoidalTimeEmbedding(model_dim)
-        else:
+        elif time_embed == "learnable":
             self.time_embed = LearnableTimeEmbedding(num_timesteps, model_dim)
+        else:
+            self.time_embed = None
 
         # Project external token embeddings into model_dim (always)
         self.ctx_proj = nn.Linear(ctx_dim, model_dim)
@@ -171,12 +175,12 @@ class DiscreteDenoiser(nn.Module):
 
         x_state = self.state_embed(x_t)               # (B, L, D)
         x_ctx = self.ctx_proj(token_embeddings)       # (B, L, D)
-        t_emb = self.time_embed(t-1).unsqueeze(1)       # (B, 1, D)
+        t_emb = self.time_embed(t - 1).unsqueeze(1) if self.time_embed is not None else None  # (B, 1, D) or None
 
         if self.fuse == "sum":
-            h = x_state + x_ctx + t_emb               # broadcast over L
+            h = x_state + x_ctx + (t_emb if t_emb is not None else 0)
         else:
-            h = torch.cat([x_state + t_emb, x_ctx], dim=-1)  # (B, L, 2D)
+            h = torch.cat([x_state + (t_emb if t_emb is not None else 0), x_ctx], dim=-1)  # (B, L, 2D)
             h = self.fuse_proj(h)                     # (B, L, D)
 
         for blk in self.blocks:
@@ -201,7 +205,7 @@ class DiscreteDenoiserConfig(BaseModel):
     num_heads: int = 4
     dropout: float = 0.0
     fuse: str = "sum"  # "sum" or "concat"
-    time_embed: str = "cosine"  # "cosine" or "learnable"
+    time_embed: str = "cosine"  # "cosine", "learnable", or "none"
     num_timesteps: int | None = None  # required when time_embed == "learnable"; should match scheduler num_steps
 
     @model_validator(mode="after")
