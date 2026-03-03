@@ -6,7 +6,7 @@
 trainer:
   type: "discrete_trainer"
   device: null
-  learning_rate: 1e-4
+  learning_rate: 2e-5
   # learning_rate: 1e-3
   weight_decay: 0.01
   # Ignore class 0 (background) in loss with this probability to balance class inequality (0 = off).
@@ -15,7 +15,7 @@ trainer:
 model:
   encoder:
     model_name: "bert-base-uncased"
-    freeze: true   # set true to freeze BERT; false to fine-tune alongside the denoiser
+    freeze: false   # set true to freeze BERT; false to fine-tune alongside the denoiser
     add_special_tokens: true
   scheduler:
     num_states: 5   # O, subject, object, predicate, # make 5 for MASK
@@ -43,7 +43,7 @@ model:
       beta_end: 0.07
   denoiser:
     num_states: 5
-    model_dim: 256
+    model_dim: 512
     ctx_dim: 768     # BERT hidden size
     num_layers: 2
     num_heads: 8
@@ -65,10 +65,10 @@ data:
   train_dataset:
     type: "cached"
     datasets:
-      # - type: "imojie"
-      #   path: "dataset/data/train/4cr_qpbo_extractions.tsv"
-      #   tokenizer_name: "bert-base-uncased"
-      #   min_success_pct: 100.0
+      - type: "imojie"
+        path: "dataset/data/train/4cr_qpbo_extractions.tsv"
+        tokenizer_name: "bert-base-uncased"
+        min_success_pct: 100.0
       - type: "sequence"
         split: "train"
         tokenizer_name: "bert-base-uncased"
@@ -93,6 +93,6 @@ num_epochs: 2000
 log_interval: 100
 save_path: checkpoints_discrete
 save_interval: 5
-val_full_interval: 3
+val_full_interval: 5
 val_metrics_on_train: true
 train_val_batches: 10
