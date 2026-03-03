@@ -175,14 +175,16 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             if logits.shape != (B, L, K):
                 raise ValueError(f"denoiser must return logits of shape {(B, L, K)}")
 
-            temp = 0.0 if self.argmax else self.temperature
-            if temp != 1.0:
-                logits = logits / max(temp, 1e-8)
-
-            # if self.topk is not None:
-            #     logits = _topk_filter_logits(logits, self.topk)
-
-            p_x0 = torch.softmax(logits, dim=-1)
+            if self.argmax:
+                # True argmax: one-hot at argmax, no float temperature/softmax
+                idx = logits.argmax(dim=-1)  # (B, L)
+                p_x0 = torch.nn.functional.one_hot(idx, num_classes=K).to(logits.dtype)
+            else:
+                if self.temperature != 1.0:
+                    logits = logits / max(self.temperature, 1e-8)
+                # if self.topk is not None:
+                #     logits = _topk_filter_logits(logits, self.topk)
+                p_x0 = torch.softmax(logits, dim=-1)
             x_t = self.sample_reverse(x_t, t, p_x0).to(self.device)
 
             if self.use_remasking and mask_state_id is not None:
