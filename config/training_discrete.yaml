@@ -45,6 +45,9 @@ model:
     num_heads: 8
     dropout: 0.0
     fuse: "sum"
+    # time_embed: "cosine" | "learnable"; if learnable, set num_timesteps to match scheduler.num_steps
+    time_embed: "learnable"
+    num_timesteps: 128   # required when time_embed: "learnable"
   temperature: 1.0
   topk: null
   argmax: false
