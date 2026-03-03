@@ -50,7 +50,7 @@ model:
     num_timesteps: 128   # required when time_embed: "learnable"
   temperature: 1.0
   topk: null
-  argmax: false
+  argmax: true
   use_remasking: true
   remask_threshold_low: 0.3   # at t=1
   remask_threshold_high: 0.9  # at t=T
