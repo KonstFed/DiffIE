@@ -81,7 +81,7 @@ data:
         filter_spans: true
     encoder: null
     batch_size: 32
-  batch_size: 32
+  batch_size: 64
   num_workers: 4
   pad_token_id: 0
   pad_label_idx: 4
