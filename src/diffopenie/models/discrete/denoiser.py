@@ -171,7 +171,7 @@ class DiscreteDenoiser(nn.Module):
 
         x_state = self.state_embed(x_t)               # (B, L, D)
         x_ctx = self.ctx_proj(token_embeddings)       # (B, L, D)
-        t_emb = self.time_embed(t).unsqueeze(1)       # (B, 1, D)
+        t_emb = self.time_embed(t-1).unsqueeze(1)       # (B, 1, D)
 
         if self.fuse == "sum":
             h = x_state + x_ctx + t_emb               # broadcast over L
