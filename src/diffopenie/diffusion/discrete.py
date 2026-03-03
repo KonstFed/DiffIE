@@ -585,6 +585,7 @@ class D3PMSchedule:
         x_t: torch.LongTensor,
         t: torch.LongTensor,
         p_x0_given_xt: torch.Tensor,
+        argmax: bool = False,
     ) -> torch.LongTensor:
         """
         Sample x_{t-1} ~ p_θ(x_{t-1} | x_t) using the x0-prediction parameterization.
@@ -599,6 +600,9 @@ class D3PMSchedule:
         """
         # probs = self._reverse_distribution(x_t, t, p_x0_given_xt)
         probs = self.reverse_distribution_exact(x_t, t, p_x0_given_xt)
+        if argmax:
+            return probs.argmax(dim=-1)
+
         return sample_categorical(probs)
 
 

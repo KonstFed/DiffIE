@@ -59,8 +59,9 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         x_t: torch.LongTensor,
         t: torch.LongTensor,
         p_x0_given_xt: torch.Tensor,
+        argmax: bool = False,
     ) -> torch.LongTensor:
-        return self.scheduler.sample_reverse(x_t, t, p_x0_given_xt)
+        return self.scheduler.sample_reverse(x_t, t, p_x0_given_xt, argmax)
 
     # scheduler wrappers
     def noise(self, x0: torch.LongTensor, t: torch.LongTensor) -> torch.LongTensor:
@@ -175,17 +176,12 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             if logits.shape != (B, L, K):
                 raise ValueError(f"denoiser must return logits of shape {(B, L, K)}")
 
-            if self.argmax:
-                # True argmax: one-hot at argmax, no float temperature/softmax
-                idx = logits.argmax(dim=-1)  # (B, L)
-                p_x0 = torch.nn.functional.one_hot(idx, num_classes=K).to(logits.dtype)
-            else:
-                if self.temperature != 1.0:
-                    logits = logits / max(self.temperature, 1e-8)
-                # if self.topk is not None:
-                #     logits = _topk_filter_logits(logits, self.topk)
-                p_x0 = torch.softmax(logits, dim=-1)
-            x_t = self.sample_reverse(x_t, t, p_x0).to(self.device)
+            if self.temperature != 1.0:
+                logits = logits / max(self.temperature, 1e-8)
+            # if self.topk is not None:
+            #     logits = _topk_filter_logits(logits, self.topk)
+            p_x0 = torch.softmax(logits, dim=-1)
+            x_t = self.sample_reverse(x_t, t, p_x0, argmax=self.argmax).to(self.device)
 
             if self.use_remasking and mask_state_id is not None:
                 confidence = p_x0.max(dim=-1).values  # (B, L)
