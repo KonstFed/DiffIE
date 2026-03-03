@@ -54,7 +54,7 @@ model:
   temperature: 1.0
   topk: null
   argmax: false
-  use_remasking: true
+  use_remasking: false
   remask_threshold_low: 0.3   # at t=1
   remask_threshold_high: 0.9  # at t=T
 
