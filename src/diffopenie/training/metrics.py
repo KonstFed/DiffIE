@@ -34,6 +34,7 @@ class MetricsResult:
     class_precision: tuple[float, ...]  # (bg, subj, rel, obj)
     class_recall: tuple[float, ...]
     class_f1: tuple[float, ...]
+    ratio_masked: float | None = None  # fraction of valid tokens still in mask state
 
     def to_dict(self, prefix: str = "") -> dict[str, float]:
         d = {
@@ -45,6 +46,8 @@ class MetricsResult:
             d[f"{prefix}precision_{name}"] = self.class_precision[i]
             d[f"{prefix}recall_{name}"] = self.class_recall[i]
             d[f"{prefix}f1_{name}"] = self.class_f1[i]
+        if self.ratio_masked is not None:
+            d[f"{prefix}ratio_masked"] = self.ratio_masked
         return d
 
 
@@ -53,13 +56,15 @@ class TripletMetrics(Metric):
 
     Per-class for B(0), S(1), R(2), O(3).
     Overall P/R/F1 micro-averaged over S, R, O only.
+    If mask_state_id is set, also computes ratio of valid tokens still in mask state.
     """
 
     full_state_update = False
 
-    def __init__(self, num_classes: int = 4):
+    def __init__(self, num_classes: int = 4, mask_state_id: int | None = None):
         super().__init__()
         self.num_classes = num_classes
+        self.mask_state_id = mask_state_id
         self.add_state(
             "tp", default=torch.zeros(num_classes, dtype=torch.long), dist_reduce_fx="sum"
         )
@@ -69,6 +74,13 @@ class TripletMetrics(Metric):
         self.add_state(
             "fn", default=torch.zeros(num_classes, dtype=torch.long), dist_reduce_fx="sum"
         )
+        if mask_state_id is not None:
+            self.add_state(
+                "masked_count", default=torch.tensor(0, dtype=torch.long), dist_reduce_fx="sum"
+            )
+            self.add_state(
+                "valid_count", default=torch.tensor(0, dtype=torch.long), dist_reduce_fx="sum"
+            )
 
     def update(
         self,
@@ -76,10 +88,18 @@ class TripletMetrics(Metric):
         target: torch.Tensor,
         mask: torch.Tensor | None = None,
     ):
-        preds, target = preds.flatten(), target.flatten()
-        if mask is not None:
-            valid = mask.flatten().bool()
-            preds, target = preds[valid], target[valid]
+        preds_flat = preds.flatten()
+        target_flat = target.flatten()
+        valid = (
+            mask.flatten().bool()
+            if mask is not None
+            else torch.ones_like(preds_flat, dtype=torch.bool, device=preds_flat.device)
+        )
+        if self.mask_state_id is not None:
+            self.masked_count += ((preds_flat == self.mask_state_id) & valid).sum()
+            self.valid_count += valid.sum()
+        preds = preds_flat[valid]
+        target = target_flat[valid]
         for c in range(self.num_classes):
             pc, tc = preds == c, target == c
             self.tp[c] += (pc & tc).sum()
@@ -97,9 +117,14 @@ class TripletMetrics(Metric):
             self.fp[1:].sum().item(),
             self.fn[1:].sum().item(),
         )
+        ratio_masked = None
+        if self.mask_state_id is not None and hasattr(self, "valid_count"):
+            v = self.valid_count.item()
+            ratio_masked = self.masked_count.item() / max(v, 1)
         return MetricsResult(
             precision=p, recall=r, f1=f,
             class_precision=per_p, class_recall=per_r, class_f1=per_f,
+            ratio_masked=ratio_masked,
         )
 
 
@@ -139,6 +164,7 @@ class PerTimestepMetricsResult:
     precision: torch.Tensor  # [T]
     recall: torch.Tensor  # [T]
     f1: torch.Tensor  # [T]
+    ratio_masked: torch.Tensor | None = None  # [T], fraction of valid tokens in mask state
 
 
 @dataclass
@@ -154,10 +180,18 @@ class PerTimestepTripletMetrics(Metric):
 
     full_state_update = False
 
-    def __init__(self, num_steps: int, num_classes: int = 4):
+    def __init__(
+        self,
+        num_steps: int,
+        num_classes: int = 4,
+        mask_state_id: int | None = None,
+    ):
         super().__init__()
         self.num_steps = num_steps
-        self._per_t = [TripletMetrics(num_classes=num_classes) for _ in range(num_steps)]
+        self._per_t = [
+            TripletMetrics(num_classes=num_classes, mask_state_id=mask_state_id)
+            for _ in range(num_steps)
+        ]
 
     def to(self, device):
         for m in self._per_t:
@@ -180,13 +214,19 @@ class PerTimestepTripletMetrics(Metric):
 
     def compute(self) -> PerTimestepMetricsResult:
         precisions, recalls, f1s = [], [], []
+        ratio_masked_list = []
         for m in self._per_t:
             r = m.compute()
             precisions.append(r.precision)
             recalls.append(r.recall)
             f1s.append(r.f1)
+            ratio_masked_list.append(r.ratio_masked)
+        ratio_masked = None
+        if all(x is not None for x in ratio_masked_list):
+            ratio_masked = torch.tensor(ratio_masked_list, dtype=torch.float32)
         return PerTimestepMetricsResult(
             precision=torch.tensor(precisions, dtype=torch.float32),
             recall=torch.tensor(recalls, dtype=torch.float32),
             f1=torch.tensor(f1s, dtype=torch.float32),
+            ratio_masked=ratio_masked,
         )

@@ -200,8 +200,15 @@ class Trainer:
         self.model.eval()
         metrics = TripletMetrics().to(self.device)
         num_steps = self.model.scheduler.num_steps
+        mask_state_id = (
+            self.model.scheduler.mask_state_id
+            if getattr(self.model.scheduler, "kernel", None) == "mask_absorbing"
+            else None
+        )
         per_t_metrics = (
-            PerTimestepTripletMetrics(num_steps).to(self.device)
+            PerTimestepTripletMetrics(
+                num_steps, mask_state_id=mask_state_id
+            ).to(self.device)
             if compute_per_timestep_metrics
             else None
         )

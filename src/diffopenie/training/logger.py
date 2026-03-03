@@ -228,6 +228,11 @@ class TrainingLogger:
             ax.plot(t_vals, p, label="Precision", marker="o", markersize=3)
             ax.plot(t_vals, r, label="Recall", marker="s", markersize=3)
             ax.plot(t_vals, f, label="F1", marker="^", markersize=3)
+            if data.ratio_masked is not None:
+                rm = data.ratio_masked.cpu().numpy()
+                ax.plot(
+                    t_vals, rm, label="Ratio masked", marker="d", markersize=3,
+                )
             ax.set_xlabel("Timestep t")
             ax.set_ylabel("Score")
             ax.set_title(f"{kind} (epoch {epoch})")
