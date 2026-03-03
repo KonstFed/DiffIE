@@ -142,7 +142,7 @@ class SequenceImojieDataset(Dataset):
         self.path = str(path)
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         self.min_success_pct = min_success_pct
-        self._df = _load_imojie_tsv(path).iloc[:100]
+        self._df = _load_imojie_tsv(path)
         if min_success_pct is not None:
             self._filter_by_success(min_success_pct)
 
