@@ -486,7 +486,7 @@ class D3PMSchedule:
         if self.kernel == "mask_absorbing":
             # costil here for sampling higher noised one more frequently
             # 2 here is any non-mask state
-            mask_survival = torch.tensor([self.forward_product[t, 2, self.mask_state_id].item() for t in range(self.num_steps)])
+            mask_survival = torch.tensor([self.forward_product[t, 2, self.mask_state_id].item() for t in range(self.num_steps)], device=self.device,)
             mask_survival = F.softmax(mask_survival, dim=0).unsqueeze(0).repeat(B, 1)
             return sample_categorical(mask_survival)
         return torch.randint(1, self.num_steps + 1, size=(B,), device=self.device, dtype=torch.long)
