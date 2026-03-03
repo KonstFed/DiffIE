@@ -33,14 +33,14 @@ model:
     #   s_T: 0.05      # ~90% masked at t=T
     #   beta_min: 1e-8
     #   beta_max: 0.2
-    beta_schedule:
-      type: log_linear
-      beta_start: 1e-5
-      beta_end: 0.2
     # beta_schedule:
-    #   type: linear
-    #   beta_start: 1e-4
-    #   beta_end: 0.0467
+    #   type: log_linear
+    #   beta_start: 1e-5
+    #   beta_end: 0.2
+    beta_schedule:
+      type: linear
+      beta_start: 1e-4
+      beta_end: 0.07
   denoiser:
     num_states: 5
     model_dim: 256
