@@ -1,7 +1,7 @@
 # Discrete D3PM training with mask_absorbing kernel (x_T = MASK everywhere).
 # Uses sequence dataset: token_ids, attention_mask, label_indices (0=O, 1=subj, 2=obj, 3=pred).
 # num_states=5 with mask_state_id=4 for padding/MASK.
-# scheduler.beta_schedule: subconfig with type (cosine | linear | mi) and type-specific params.
+# scheduler.beta_schedule: subconfig with type (cosine | linear | log_linear | mi) and type-specific params.
 
 trainer:
   type: "discrete_trainer"
@@ -27,12 +27,16 @@ model:
     # beta_schedule:
     #   type: cosine
     #   s: 0.008
+    # beta_schedule:
+    #   type: mi
+    #   mode: cosine
+    #   s_T: 0.05      # ~90% masked at t=T
+    #   beta_min: 1e-8
+    #   beta_max: 0.2
     beta_schedule:
-      type: mi
-      mode: cosine
-      s_T: 0.05      # ~90% masked at t=T
-      beta_min: 1e-8
-      beta_max: 0.2
+      type: log_linear
+      beta_start: 1e-5
+      beta_end: 0.2
     # beta_schedule:
     #   type: linear
     #   beta_start: 1e-4

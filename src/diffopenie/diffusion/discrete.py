@@ -114,6 +114,47 @@ class LinearBetaSchedule:
         )
 
 
+class LogLinearBetaSchedule:
+    """
+    Log-linear noise schedule for discrete diffusion.
+
+    log(beta_t) is linear in t, so betas interpolate exponentially:
+        beta_t = exp( (1 - u) * log(beta_start) + u * log(beta_end) )
+    with u = (t - 1) / (num_steps - 1) for t in 1..num_steps.
+    For num_steps == 1, returns beta_start.
+
+    Returns:
+        betas: (num_steps,) tensor for D3PMSchedule(..., betas=...).
+    """
+
+    def __init__(
+        self,
+        num_steps: int,
+        beta_start: float = 0.0001,
+        beta_end: float = 0.02,
+        device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
+    ):
+        self.num_steps = num_steps
+        self.beta_start = beta_start
+        self.beta_end = beta_end
+        self.device = device
+        self.dtype = dtype
+
+    def get_betas(self) -> torch.Tensor:
+        if self.num_steps == 1:
+            return torch.tensor(
+                [self.beta_start], device=self.device, dtype=self.dtype
+            )
+        log_start = math.log(max(self.beta_start, 1e-10))
+        log_end = math.log(max(self.beta_end, 1e-10))
+        u = torch.linspace(
+            0.0, 1.0, self.num_steps, device=self.device, dtype=self.dtype
+        )
+        log_betas = (1.0 - u) * log_start + u * log_end
+        return torch.exp(log_betas).clamp(1e-6, 0.999)
+
+
 def mi_betas_absorbing(
     num_steps: int,
     s_T: float = 0.1,                 # final survival prob (not masked) at T
@@ -245,6 +286,30 @@ class LinearBetaScheduleConfig(BaseModel):
         return schedule.get_betas()
 
 
+class LogLinearBetaScheduleConfig(BaseModel):
+    """Config for log-linear beta schedule (log(beta_t) linear in t). Use with beta_schedule subconfig."""
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["log_linear"] = "log_linear"
+    beta_start: float = 0.0001
+    beta_end: float = 0.02
+
+    def get_betas(
+        self,
+        num_steps: int,
+        device: str,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        schedule = LogLinearBetaSchedule(
+            num_steps=num_steps,
+            beta_start=self.beta_start,
+            beta_end=self.beta_end,
+            device=device,
+            dtype=dtype,
+        )
+        return schedule.get_betas()
+
+
 class MIBetaScheduleConfig(BaseModel):
     """Config for mutual-information (absorbing) beta schedule. Use with beta_schedule subconfig."""
 
@@ -276,6 +341,7 @@ BetaScheduleConfig = Annotated[
     Union[
         CosineBetaScheduleConfig,
         LinearBetaScheduleConfig,
+        LogLinearBetaScheduleConfig,
         MIBetaScheduleConfig,
     ],
     Field(discriminator="type"),
@@ -411,8 +477,20 @@ class D3PMSchedule:
         self.forward_product = self.forward_product.to(device_str, dtype=self.dtype)
         return self
 
+    # ----------------------------
+    # Sampling: t ~ p(t)
+    # ----------------------------
+
     def sample_t(self, B: int) -> torch.LongTensor:
         return torch.randint(1, self.num_steps + 1, size=(B,), device=self.device, dtype=torch.long)
+
+    # def weight_t(self, t: torch.LongTensor) -> torch.FloatTensor:
+    #     """return loss weight for timestep t"""
+
+    #     # in our case we see whole sentence
+    #     # thus it is not okay to see huge CE loss for high t
+    #     # this is just trick to try to get better inference
+    #     return 1 / self.betas[t]
 
     # ----------------------------
     # Forward: q(x_t | x_0)
