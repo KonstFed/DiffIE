@@ -19,7 +19,10 @@ from diffopenie.training.metrics import (
     EpochResult,
     MetricsResult,
     PerTimestepLoss,
+    PerTimestepMetricsResult,
+    PerTimestepTripletMetrics,
     TripletMetrics,
+    ValidationResult,
 )
 
 DEFAULT_CLASS_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
@@ -172,11 +175,36 @@ class Trainer:
         return total / max(n, 1)
 
     @torch.no_grad()
+    def validate_per_t_loss(
+        self, dataloader: DataLoader
+    ) -> torch.Tensor | None:
+        """Average loss per timestep on the validation set. Returns [T] or None if empty."""
+        self.model.eval()
+        per_t = PerTimestepLoss(self.model.scheduler.num_steps).to(self.device)
+        n = 0
+        for batch in tqdm(dataloader, desc="Val per-t loss", leave=False):
+            result = self.compute_loss(batch)
+            per_t.update(result.per_sample_loss, result.timesteps)
+            n += 1
+        if n == 0:
+            return None
+        return per_t.compute()
+
+    @torch.no_grad()
     def validate(
-        self, dataloader: DataLoader, max_batches: int | None = None,
-    ) -> MetricsResult:
+        self,
+        dataloader: DataLoader,
+        max_batches: int | None = None,
+        compute_per_timestep_metrics: bool = False,
+    ) -> ValidationResult:
         self.model.eval()
         metrics = TripletMetrics().to(self.device)
+        num_steps = self.model.scheduler.num_steps
+        per_t_metrics = (
+            PerTimestepTripletMetrics(num_steps).to(self.device)
+            if compute_per_timestep_metrics
+            else None
+        )
         for i, batch in enumerate(
             tqdm(dataloader, desc="Validating", leave=False),
         ):
@@ -184,13 +212,21 @@ class Trainer:
                 break
             token_ids, attention_mask, labels = self._to_device(batch)
             token_emb = self.model.encode_tokens(token_ids, attention_mask)
-            preds = self.model.generate(
+            out = self.model.generate(
                 batch_size=token_ids.shape[0],
                 token_embeddings=token_emb,
                 attention_mask=attention_mask,
+                return_intermediate=compute_per_timestep_metrics,
             )
-            metrics.update(preds, labels, attention_mask)
-        return metrics.compute()
+            if compute_per_timestep_metrics:
+                preds, intermediates = out
+                metrics.update(preds, labels, attention_mask)
+                per_t_metrics.update(intermediates, labels, attention_mask)
+            else:
+                metrics.update(out, labels, attention_mask)
+        carb = metrics.compute()
+        per_t_carb = per_t_metrics.compute() if per_t_metrics is not None else None
+        return ValidationResult(carb=carb, per_t_carb=per_t_carb)
 
     # -- Main training loop -----------------------------------------------
 
@@ -229,15 +265,34 @@ class Trainer:
                 self.validate_loss(val_dataloader)
                 if val_dataloader else None
             )
+            per_t_val_loss = (
+                self.validate_per_t_loss(val_dataloader)
+                if val_dataloader else None
+            )
 
             do_full = epoch % val_full_interval == 0
-            carb = (
-                self.validate(val_dataloader)
-                if val_dataloader and do_full else None
+            val_result = (
+                self.validate(
+                    val_dataloader,
+                    compute_per_timestep_metrics=do_full,
+                )
+                if val_dataloader and do_full
+                else None
             )
-            train_carb = (
-                self.validate(train_dataloader, max_batches=train_val_batches)
-                if val_metrics_on_train and do_full else None
+            carb = val_result.carb if val_result else None
+            per_t_carb = val_result.per_t_carb if val_result else None
+            train_val_result = (
+                self.validate(
+                    train_dataloader,
+                    max_batches=train_val_batches,
+                    compute_per_timestep_metrics=do_full,
+                )
+                if val_metrics_on_train and do_full
+                else None
+            )
+            train_carb = train_val_result.carb if train_val_result else None
+            train_per_t_carb = (
+                train_val_result.per_t_carb if train_val_result else None
             )
 
             new_best = None
@@ -250,6 +305,9 @@ class Trainer:
                 epoch, epoch_result.loss, val_loss,
                 epoch_result.direct_metrics, carb, train_carb,
                 epoch_result.per_timestep_loss,
+                per_t_val_loss=per_t_val_loss,
+                per_t_carb_metrics=per_t_carb,
+                train_per_t_carb_metrics=train_per_t_carb,
             )
             logger.print_epoch(
                 epoch, num_epochs, epoch_result.loss, val_loss,

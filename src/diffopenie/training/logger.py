@@ -7,7 +7,11 @@ import pandas as pd
 import torch
 from matplotlib.gridspec import GridSpec
 
-from diffopenie.training.metrics import CLASS_NAMES, MetricsResult
+from diffopenie.training.metrics import (
+    CLASS_NAMES,
+    MetricsResult,
+    PerTimestepMetricsResult,
+)
 
 
 class TrainingLogger:
@@ -26,6 +30,9 @@ class TrainingLogger:
         carb_metrics: MetricsResult | None = None,
         train_carb_metrics: MetricsResult | None = None,
         per_t_loss: torch.Tensor | None = None,
+        per_t_val_loss: torch.Tensor | None = None,
+        per_t_carb_metrics: PerTimestepMetricsResult | None = None,
+        train_per_t_carb_metrics: PerTimestepMetricsResult | None = None,
     ):
         row: dict = {"epoch": epoch, "train_loss": train_loss}
         if val_loss is not None:
@@ -44,7 +51,11 @@ class TrainingLogger:
         pd.DataFrame(self._rows).to_csv(self.log_path, index=False)
         self._plot_training()
         if per_t_loss is not None:
-            self._plot_per_t_loss(per_t_loss, epoch)
+            self._plot_per_t_loss(per_t_loss, epoch, per_t_val_loss)
+        if per_t_carb_metrics is not None or train_per_t_carb_metrics is not None:
+            self._plot_per_t_carb_merged(
+                per_t_carb_metrics, train_per_t_carb_metrics, epoch
+            )
 
     def print_epoch(
         self,
@@ -155,19 +166,75 @@ class TrainingLogger:
         plt.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close()
 
-    def _plot_per_t_loss(self, per_t_loss: torch.Tensor, epoch: int):
+    def _plot_per_t_loss(
+        self,
+        per_t_loss: torch.Tensor,
+        epoch: int,
+        per_t_val_loss: torch.Tensor | None = None,
+    ):
         if self.log_path is None:
             return
         plot_path = self.log_path.parent / "per_t_loss.png"
         t_vals = torch.arange(1, len(per_t_loss) + 1).numpy()
-        vals = per_t_loss.cpu().numpy()
+        train_vals = per_t_loss.cpu().numpy()
 
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.bar(t_vals, vals, width=0.8)
+        ax.plot(
+            t_vals, train_vals, label="Train", marker="o", markersize=3,
+        )
+        if per_t_val_loss is not None and len(per_t_val_loss) == len(per_t_loss):
+            val_vals = per_t_val_loss.cpu().numpy()
+            ax.plot(
+                t_vals, val_vals, label="Val", marker="s", markersize=3,
+            )
         ax.set_xlabel("Timestep t")
         ax.set_ylabel("Avg loss")
         ax.set_title(f"Per-timestep loss (epoch {epoch})")
+        ax.legend()
         ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+        plt.close()
+
+    def _plot_per_t_carb_merged(
+        self,
+        per_t_carb: PerTimestepMetricsResult | None,
+        train_per_t_carb: PerTimestepMetricsResult | None,
+        epoch: int,
+    ):
+        """Plot val and train CaRB metrics per timestep in one figure (2 subplots)."""
+        if self.log_path is None:
+            return
+        plot_path = self.log_path.parent / "carb_per_t.png"
+        n_plots = sum(x is not None for x in (per_t_carb, train_per_t_carb))
+        if n_plots == 0:
+            return
+        fig, axes = plt.subplots(
+            1, 2, figsize=(10, 4), sharex=True, sharey=True
+        )
+        for ax, data, kind in zip(
+            axes,
+            (per_t_carb, train_per_t_carb),
+            ("Val", "Train"),
+        ):
+            if data is None:
+                ax.set_visible(False)
+                continue
+            T = data.f1.shape[0]
+            t_vals = list(range(T, 0, -1))
+            p = data.precision.cpu().numpy()
+            r = data.recall.cpu().numpy()
+            f = data.f1.cpu().numpy()
+            ax.plot(t_vals, p, label="Precision", marker="o", markersize=3)
+            ax.plot(t_vals, r, label="Recall", marker="s", markersize=3)
+            ax.plot(t_vals, f, label="F1", marker="^", markersize=3)
+            ax.set_xlabel("Timestep t")
+            ax.set_ylabel("Score")
+            ax.set_title(f"{kind} (epoch {epoch})")
+            ax.set_ylim(0, 1.05)
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        fig.suptitle("CaRB metrics per timestep", fontsize=12, y=1.02)
         plt.tight_layout()
         plt.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close()

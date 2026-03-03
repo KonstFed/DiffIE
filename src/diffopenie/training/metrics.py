@@ -130,3 +130,63 @@ class PerTimestepLoss(Metric):
         valid = self.count > 0
         result[valid] = self.loss_sum[valid] / self.count[valid].float()
         return result
+
+
+@dataclass
+class PerTimestepMetricsResult:
+    """Precision, recall, F1 per diffusion timestep (averaged over S/R/O)."""
+
+    precision: torch.Tensor  # [T]
+    recall: torch.Tensor  # [T]
+    f1: torch.Tensor  # [T]
+
+
+@dataclass
+class ValidationResult:
+    """Result of validate(): final CARB metrics and optional per-timestep metrics."""
+
+    carb: MetricsResult
+    per_t_carb: PerTimestepMetricsResult | None = None
+
+
+class PerTimestepTripletMetrics(Metric):
+    """CaRB-style P/R/F1 per diffusion timestep for intermediate generation."""
+
+    full_state_update = False
+
+    def __init__(self, num_steps: int, num_classes: int = 4):
+        super().__init__()
+        self.num_steps = num_steps
+        self._per_t = [TripletMetrics(num_classes=num_classes) for _ in range(num_steps)]
+
+    def to(self, device):
+        for m in self._per_t:
+            m.to(device)
+        return super().to(device)
+
+    def update(
+        self,
+        intermediates: torch.Tensor,
+        target: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ):
+        """
+        intermediates: [B, L, T] predictions at each reverse step.
+        target: [B, L], mask: [B, L].
+        """
+        T = intermediates.shape[2]
+        for t in range(T):
+            self._per_t[t].update(intermediates[:, :, t], target, mask)
+
+    def compute(self) -> PerTimestepMetricsResult:
+        precisions, recalls, f1s = [], [], []
+        for m in self._per_t:
+            r = m.compute()
+            precisions.append(r.precision)
+            recalls.append(r.recall)
+            f1s.append(r.f1)
+        return PerTimestepMetricsResult(
+            precision=torch.tensor(precisions, dtype=torch.float32),
+            recall=torch.tensor(recalls, dtype=torch.float32),
+            f1=torch.tensor(f1s, dtype=torch.float32),
+        )

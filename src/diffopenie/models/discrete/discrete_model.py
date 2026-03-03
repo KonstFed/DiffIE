@@ -145,10 +145,16 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         batch_size: int,
         token_embeddings: torch.Tensor,
         attention_mask: torch.Tensor,
-    ) -> torch.LongTensor:
+        return_intermediate: bool = False,
+    ) -> torch.LongTensor | tuple[torch.LongTensor, torch.LongTensor]:
         """
         Reverse diffusion sampling loop (paper Eq. 4 construction).
         Uses config: temperature/argmax, use_remasking, remask_threshold_*.
+
+        Args:
+            return_intermediate: If True, return (x_0, intermediates) where
+                intermediates is [B, L, T] with predictions at each reverse step
+                (intermediates[:,:,0] after t=T, ..., intermediates[:,:,T-1] = x_0).
         """
         B = batch_size
         L = token_embeddings.shape[1]
@@ -166,6 +172,8 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             )
         else:
             x_t = torch.randint(0, K, (B, L), device=self.device, dtype=torch.long)
+
+        intermediates_list: list[torch.LongTensor] = [] if return_intermediate else []
 
         for ti in range(T, 0, -1):
             t = torch.full((B,), ti, device=self.device, dtype=torch.long)
@@ -191,14 +199,13 @@ class DiscreteModel(nn.Module, BaseTripletModel):
                 remask = remask & attention_mask.to(torch.bool)
                 x_t = torch.where(remask, torch.full_like(x_t, mask_state_id), x_t)
 
-        # check if are there any mask DEBUG
-        # if self.scheduler.kernel == "mask_absorbing":
-        #     mask_state_id = self.scheduler.mask_state_id
-        #     for sample_ind in range(batch_size):
-        #         if (x_t[sample_ind] == mask_state_id).any():
-        #             l = attention_mask[sample_ind].sum()
-        #             mask_number = (x_t == mask_state_id).sum()
-        #             print("AAAAAAAAA", mask_number, l, mask_number / l)
+            if return_intermediate:
+                intermediates_list.append(x_t.clone())
+
+        if return_intermediate:
+            # [B, L, T]: dim 2 index 0 = after step t=T, ..., T-1 = x_0
+            intermediates = torch.stack(intermediates_list, dim=2)
+            return x_t, intermediates
         return x_t
 
 
