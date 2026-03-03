@@ -15,6 +15,7 @@ class EpochResult:
     loss: float
     direct_metrics: "MetricsResult"
     per_timestep_loss: torch.Tensor  # [T]
+    t_sampled_counts: torch.Tensor | None = None  # [T], samples per t in this epoch
 
 
 def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
@@ -155,6 +156,10 @@ class PerTimestepLoss(Metric):
         valid = self.count > 0
         result[valid] = self.loss_sum[valid] / self.count[valid].float()
         return result
+
+    def get_counts(self) -> torch.Tensor:
+        """Returns [num_steps] count of samples per timestep in this epoch."""
+        return self.count.detach().clone()
 
 
 @dataclass

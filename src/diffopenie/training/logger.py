@@ -31,6 +31,7 @@ class TrainingLogger:
         train_carb_metrics: MetricsResult | None = None,
         per_t_loss: torch.Tensor | None = None,
         per_t_val_loss: torch.Tensor | None = None,
+        t_sampled_counts: torch.Tensor | None = None,
         per_t_carb_metrics: PerTimestepMetricsResult | None = None,
         train_per_t_carb_metrics: PerTimestepMetricsResult | None = None,
     ):
@@ -51,7 +52,7 @@ class TrainingLogger:
         pd.DataFrame(self._rows).to_csv(self.log_path, index=False)
         self._plot_training()
         if per_t_loss is not None:
-            self._plot_per_t_loss(per_t_loss, epoch, per_t_val_loss)
+            self._plot_per_t_loss(per_t_loss, epoch, per_t_val_loss, t_sampled_counts)
         if per_t_carb_metrics is not None or train_per_t_carb_metrics is not None:
             self._plot_per_t_carb_merged(
                 per_t_carb_metrics, train_per_t_carb_metrics, epoch
@@ -171,6 +172,7 @@ class TrainingLogger:
         per_t_loss: torch.Tensor,
         epoch: int,
         per_t_val_loss: torch.Tensor | None = None,
+        t_sampled_counts: torch.Tensor | None = None,
     ):
         if self.log_path is None:
             return
@@ -179,6 +181,20 @@ class TrainingLogger:
         train_vals = per_t_loss.cpu().numpy()
 
         fig, ax = plt.subplots(figsize=(8, 4))
+        # Background: distribution of t sampled in this epoch (twin axis)
+        if t_sampled_counts is not None and len(t_sampled_counts) == len(per_t_loss):
+            ax_twin = ax.twinx()
+            counts = t_sampled_counts.cpu().numpy().astype(float)
+            total = counts.sum()
+            if total > 0:
+                frac = counts / total
+                ax_twin.bar(
+                    t_vals, frac, width=0.8, alpha=0.3, color="gray",
+                    align="center", label="t sampled",
+                )
+                ax_twin.set_ylabel("Fraction of samples (t)", color="gray", fontsize=9)
+                ax_twin.tick_params(axis="y", labelcolor="gray", labelsize=8)
+                ax_twin.set_ylim(0, None)
         ax.plot(
             t_vals, train_vals, label="Train", marker="o", markersize=3,
         )
@@ -190,7 +206,7 @@ class TrainingLogger:
         ax.set_xlabel("Timestep t")
         ax.set_ylabel("Avg loss")
         ax.set_title(f"Per-timestep loss (epoch {epoch})")
-        ax.legend()
+        ax.legend(loc="upper left")
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.savefig(plot_path, dpi=150, bbox_inches="tight")

@@ -163,6 +163,7 @@ class Trainer:
             loss=total_loss / max(n, 1),
             direct_metrics=metrics.compute(),
             per_timestep_loss=per_t.compute(),
+            t_sampled_counts=per_t.get_counts(),
         )
 
     @torch.no_grad()
@@ -313,6 +314,7 @@ class Trainer:
                 epoch_result.direct_metrics, carb, train_carb,
                 epoch_result.per_timestep_loss,
                 per_t_val_loss=per_t_val_loss,
+                t_sampled_counts=epoch_result.t_sampled_counts,
                 per_t_carb_metrics=per_t_carb,
                 train_per_t_carb_metrics=train_per_t_carb,
             )
