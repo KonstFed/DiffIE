@@ -53,8 +53,8 @@ model:
     num_timesteps: 128   # required when time_embed: "learnable"
   temperature: 1.0
   topk: null
-  argmax: false
-  use_remasking: false
+  argmax: true
+  use_remasking: true
   remask_threshold_low: 0.3   # at t=1
   remask_threshold_high: 0.9  # at t=T
 
@@ -93,6 +93,6 @@ num_epochs: 2000
 log_interval: 100
 save_path: checkpoints_discrete
 save_interval: 5
-val_full_interval: 5
+val_full_interval: 3
 val_metrics_on_train: true
 train_val_batches: 10
