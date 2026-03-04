@@ -1,13 +1,21 @@
+from typing import Annotated, Union
+
 from torch import nn
 import torch
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from diffopenie.models.base_model import BaseTripletModel
 from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
 from diffopenie.diffusion.discrete import D3PMSchedule, D3PMScheduleConfig
+from diffopenie.diffusion.mdlm import MDLMSchedule, MDLMScheduleConfig
 from diffopenie.models.discrete.denoiser import DiscreteDenoiser, DiscreteDenoiserConfig
 from diffopenie.data.triplet_utils import extract_longest_span
 from diffopenie.data import SEQ_INT2STR, SEQ_STR2INT
+
+SchedulerConfig = Annotated[
+    Union[D3PMScheduleConfig, MDLMScheduleConfig],
+    Field(discriminator="type"),
+]
 
 
 def _topk_filter_logits(logits: torch.Tensor, k: int) -> torch.Tensor:
@@ -26,7 +34,7 @@ class DiscreteModel(nn.Module, BaseTripletModel):
     def __init__(
         self,
         encoder: BERTEncoder,
-        scheduler: D3PMSchedule,
+        scheduler: D3PMSchedule | MDLMSchedule,
         denoiser: DiscreteDenoiser,
         temperature: float = 1.0,
         topk: int | None = None,
@@ -217,7 +225,7 @@ class DiscreteModelConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     encoder: BERTEncoderConfig
-    scheduler: D3PMScheduleConfig
+    scheduler: SchedulerConfig
     denoiser: DiscreteDenoiserConfig
     temperature: float = 1.0
     topk: int | None = None

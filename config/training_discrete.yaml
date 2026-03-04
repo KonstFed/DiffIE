@@ -17,7 +17,9 @@ model:
     model_name: "bert-base-uncased"
     freeze: false   # set true to freeze BERT; false to fine-tune alongside the denoiser
     add_special_tokens: true
+  # scheduler type: "d3pm" (transition matrices) or "mdlm" (concrete score, mask-absorbing only)
   scheduler:
+    type: d3pm
     num_states: 5   # O, subject, object, predicate, # make 5 for MASK
     num_steps: 128
     kernel: "mask_absorbing"
@@ -41,6 +43,24 @@ model:
       type: linear
       beta_start: 1e-4
       beta_end: 0.07
+  # --- MDLM alternative (uncomment to switch) ---
+  # scheduler:
+  #   type: mdlm
+  #   num_states: 5
+  #   num_steps: 128
+  #   mask_state_id: 4
+  #   device: "cpu"
+  #   dtype: "float32"
+  #   alpha_schedule:
+  #     type: cosine        # cosine | linear | log_linear | mi
+  #     s: 0.008
+  #   # alpha_schedule:
+  #   #   type: log_linear  # standard MDLM schedule
+  #   #   eps: 1e-4
+  #   # alpha_schedule:
+  #   #   type: mi
+  #   #   s_T: 0.05
+  #   #   mode: cosine
   denoiser:
     num_states: 5
     model_dim: 512
@@ -65,10 +85,10 @@ data:
   train_dataset:
     type: "cached"
     datasets:
-      - type: "imojie"
-        path: "dataset/data/train/4cr_qpbo_extractions.tsv"
-        tokenizer_name: "bert-base-uncased"
-        min_success_pct: 100.0
+      # - type: "imojie"
+      #   path: "dataset/data/train/4cr_qpbo_extractions.tsv"
+      #   tokenizer_name: "bert-base-uncased"
+      #   min_success_pct: 100.0
       - type: "sequence"
         split: "train"
         tokenizer_name: "bert-base-uncased"

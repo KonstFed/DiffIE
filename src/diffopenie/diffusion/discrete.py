@@ -5,6 +5,12 @@ import torch
 import torch.nn.functional as F
 from pydantic import BaseModel, ConfigDict, Field
 
+from diffopenie.diffusion.schedules import (
+    BetaScheduleConfig,
+    CosineBetaSchedule,
+    CosineBetaScheduleConfig,
+)
+
 # ------------------------------------------------------------
 # Utilities
 # ------------------------------------------------------------
@@ -37,316 +43,6 @@ def sample_categorical(probs: torch.Tensor) -> torch.LongTensor:
     flat = probs.reshape(-1, K)
     idx = torch.multinomial(flat, 1).squeeze(-1)
     return idx.reshape(probs.shape[:-1])
-
-
-# ------------------------------------------------------------
-# Beta schedules (for use with DiscreteDiffusionMarkovSchedule)
-# ------------------------------------------------------------
-
-
-class CosineBetaSchedule:
-    """
-    Cosine noise schedule for discrete diffusion (Nichol & Dhariwal style).
-
-    Produces per-step betas from:
-        alpha_bar(t) = cos^2((t + s) / (1 + s) * pi/2)
-    with t in [0, 1], then beta_t = 1 - (alpha_bar_t / alpha_bar_{t-1}).
-
-    Returns:
-        betas: (num_steps,) tensor for DiscreteDiffusionMarkovSchedule(..., betas=...).
-    """
-
-    def __init__(
-        self,
-        num_steps: int,
-        s: float = 0.008,
-        device: str = "cpu",
-        dtype: torch.dtype = torch.float32,
-    ):
-        self.num_steps = num_steps
-        self.s = s
-        self.device = device
-        self.dtype = dtype
-
-    def get_betas(self) -> torch.Tensor:
-        steps = torch.arange(1, self.num_steps + 1, device=self.device, dtype=self.dtype)
-        t = steps / self.num_steps
-        alpha_bar = torch.cos((t + self.s) / (1.0 + self.s) * (math.pi / 2.0)) ** 2
-        alpha_bar_prev = torch.cat(
-            [torch.tensor([1.0], device=self.device, dtype=self.dtype), alpha_bar[:-1]]
-        )
-        alpha = alpha_bar / alpha_bar_prev
-        betas = (1.0 - alpha).clamp(1e-6, 0.999)
-        return betas
-
-
-class LinearBetaSchedule:
-    """
-    Linear noise schedule for discrete diffusion.
-
-    betas[t] = beta_start + (beta_end - beta_start) * (t - 1) / (num_steps - 1)
-    for t in 1..num_steps.
-
-    Returns:
-        betas: (num_steps,) tensor for D3PMSchedule(..., betas=...).
-    """
-
-    def __init__(
-        self,
-        num_steps: int,
-        beta_start: float = 0.0001,
-        beta_end: float = 0.02,
-        device: str = "cpu",
-        dtype: torch.dtype = torch.float32,
-    ):
-        self.num_steps = num_steps
-        self.beta_start = beta_start
-        self.beta_end = beta_end
-        self.device = device
-        self.dtype = dtype
-
-    def get_betas(self) -> torch.Tensor:
-        return torch.linspace(
-            self.beta_start,
-            self.beta_end,
-            self.num_steps,
-            device=self.device,
-            dtype=self.dtype,
-        )
-
-
-class LogLinearBetaSchedule:
-    """
-    Log-linear noise schedule for discrete diffusion.
-
-    log(beta_t) is linear in t, so betas interpolate exponentially:
-        beta_t = exp( (1 - u) * log(beta_start) + u * log(beta_end) )
-    with u = (t - 1) / (num_steps - 1) for t in 1..num_steps.
-    For num_steps == 1, returns beta_start.
-
-    Returns:
-        betas: (num_steps,) tensor for D3PMSchedule(..., betas=...).
-    """
-
-    def __init__(
-        self,
-        num_steps: int,
-        beta_start: float = 0.0001,
-        beta_end: float = 0.02,
-        device: str = "cpu",
-        dtype: torch.dtype = torch.float32,
-    ):
-        self.num_steps = num_steps
-        self.beta_start = beta_start
-        self.beta_end = beta_end
-        self.device = device
-        self.dtype = dtype
-
-    def get_betas(self) -> torch.Tensor:
-        if self.num_steps == 1:
-            return torch.tensor(
-                [self.beta_start], device=self.device, dtype=self.dtype
-            )
-        log_start = math.log(max(self.beta_start, 1e-10))
-        log_end = math.log(max(self.beta_end, 1e-10))
-        u = torch.linspace(
-            0.0, 1.0, self.num_steps, device=self.device, dtype=self.dtype
-        )
-        log_betas = (1.0 - u) * log_start + u * log_end
-        return torch.exp(log_betas).clamp(1e-6, 0.999)
-
-
-def mi_betas_absorbing(
-    num_steps: int,
-    s_T: float = 0.1,                 # final survival prob (not masked) at T
-    mode: str = "linear",             # "linear" or "cosine"
-    device: str | torch.device = "cpu",
-    dtype: torch.dtype = torch.float32,
-    beta_min: float = 1e-8,
-    beta_max: float = 0.2,
-) -> torch.Tensor:
-    """
-    Mutual-information schedule for mask-absorbing D3PM.
-
-    For absorbing masking: I(X0;Xt) = s_t * H(X0), so controlling MI is controlling s_t.
-    We pick a schedule for s_t from 1 -> s_T, then convert to betas:
-        beta_t = 1 - s_t / s_{t-1}
-
-    Returns:
-        betas: (T,) tensor
-    """
-    T = num_steps
-    s_T = float(s_T)
-    assert 0.0 < s_T < 1.0
-
-    # s[0]..s[T]
-    if mode == "linear":
-        s = torch.linspace(1.0, s_T, steps=T + 1, device=device, dtype=dtype)
-    elif mode == "cosine":
-        # smooth decay from 1 -> s_T
-        u = torch.linspace(0.0, 1.0, steps=T + 1, device=device, dtype=dtype)
-        s = s_T + (1.0 - s_T) * torch.cos(u * torch.pi / 2.0) ** 2
-    else:
-        raise ValueError("mode must be 'linear' or 'cosine'")
-
-    # Convert survival schedule to betas
-    # beta_t = 1 - s[t]/s[t-1], for t=1..T
-    betas = 1.0 - (s[1:] / s[:-1]).clamp_min(1e-30)
-
-    # Safety clamps
-    betas = betas.clamp(beta_min, beta_max)
-    return betas
-
-
-class MIBetaSchedule:
-    """
-    Mutual-information schedule for mask-absorbing D3PM.
-
-    Controls survival probability s_t from 1 -> s_T, then converts to betas
-    via beta_t = 1 - s_t / s_{t-1}. Use with kernel='mask_absorbing'.
-
-    Returns:
-        betas: (num_steps,) tensor for D3PMSchedule(..., betas=...).
-    """
-
-    def __init__(
-        self,
-        num_steps: int,
-        s_T: float = 0.1,
-        mode: str = "linear",
-        device: str | torch.device = "cpu",
-        dtype: torch.dtype = torch.float32,
-        beta_min: float = 1e-8,
-        beta_max: float = 0.2,
-    ):
-        self.num_steps = num_steps
-        self.s_T = s_T
-        self.mode = mode
-        self.device = device
-        self.dtype = dtype
-        self.beta_min = beta_min
-        self.beta_max = beta_max
-
-    def get_betas(self) -> torch.Tensor:
-        return mi_betas_absorbing(
-            num_steps=self.num_steps,
-            s_T=self.s_T,
-            mode=self.mode,
-            device=self.device,
-            dtype=self.dtype,
-            beta_min=self.beta_min,
-            beta_max=self.beta_max,
-        )
-
-
-# ------------------------------------------------------------
-# Beta schedule configs (for D3PMScheduleConfig)
-# ------------------------------------------------------------
-
-
-class CosineBetaScheduleConfig(BaseModel):
-    """Config for cosine beta schedule. Use with beta_schedule subconfig."""
-
-    model_config = ConfigDict(extra="forbid")
-    type: Literal["cosine"] = "cosine"
-    s: float = 0.008
-
-    def get_betas(
-        self,
-        num_steps: int,
-        device: str,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        schedule = CosineBetaSchedule(
-            num_steps=num_steps, s=self.s, device=device, dtype=dtype
-        )
-        return schedule.get_betas()
-
-
-class LinearBetaScheduleConfig(BaseModel):
-    """Config for linear beta schedule. Use with beta_schedule subconfig."""
-
-    model_config = ConfigDict(extra="forbid")
-    type: Literal["linear"] = "linear"
-    beta_start: float = 0.0001
-    beta_end: float = 0.02
-
-    def get_betas(
-        self,
-        num_steps: int,
-        device: str,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        schedule = LinearBetaSchedule(
-            num_steps=num_steps,
-            beta_start=self.beta_start,
-            beta_end=self.beta_end,
-            device=device,
-            dtype=dtype,
-        )
-        return schedule.get_betas()
-
-
-class LogLinearBetaScheduleConfig(BaseModel):
-    """Config for log-linear beta schedule (log(beta_t) linear in t). Use with beta_schedule subconfig."""
-
-    model_config = ConfigDict(extra="forbid")
-    type: Literal["log_linear"] = "log_linear"
-    beta_start: float = 0.0001
-    beta_end: float = 0.02
-
-    def get_betas(
-        self,
-        num_steps: int,
-        device: str,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        schedule = LogLinearBetaSchedule(
-            num_steps=num_steps,
-            beta_start=self.beta_start,
-            beta_end=self.beta_end,
-            device=device,
-            dtype=dtype,
-        )
-        return schedule.get_betas()
-
-
-class MIBetaScheduleConfig(BaseModel):
-    """Config for mutual-information (absorbing) beta schedule. Use with beta_schedule subconfig."""
-
-    model_config = ConfigDict(extra="forbid")
-    type: Literal["mi"] = "mi"
-    s_T: float = 0.1
-    mode: Literal["linear", "cosine"] = "linear"
-    beta_min: float = 1e-8
-    beta_max: float = 0.2
-
-    def get_betas(
-        self,
-        num_steps: int,
-        device: str,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        return mi_betas_absorbing(
-            num_steps=num_steps,
-            s_T=self.s_T,
-            mode=self.mode,
-            device=device,
-            dtype=dtype,
-            beta_min=self.beta_min,
-            beta_max=self.beta_max,
-        )
-
-
-BetaScheduleConfig = Annotated[
-    Union[
-        CosineBetaScheduleConfig,
-        LinearBetaScheduleConfig,
-        LogLinearBetaScheduleConfig,
-        MIBetaScheduleConfig,
-    ],
-    Field(discriminator="type"),
-]
 
 
 # ------------------------------------------------------------
@@ -484,21 +180,11 @@ class D3PMSchedule:
 
     def sample_t(self, B: int) -> torch.LongTensor:
         if self.kernel == "mask_absorbing":
-            # costil here for sampling higher noised one more frequently
-            # 2 here is any non-mask state
+            # importance sampling: higher-noise timesteps sampled more frequently
             mask_survival = torch.tensor([self.forward_product[t, 2, self.mask_state_id].item() for t in range(self.num_steps)], device=self.device,)
             mask_survival = F.softmax(mask_survival, dim=0)
-            # mask_survival = mask_survival / mask_survival.sum()
             return sample_categorical(mask_survival.unsqueeze(0).repeat(B, 1)) + 1
         return torch.randint(1, self.num_steps + 1, size=(B,), device=self.device, dtype=torch.long)
-
-    # def weight_t(self, t: torch.LongTensor) -> torch.FloatTensor:
-    #     """return loss weight for timestep t"""
-
-    #     # in our case we see whole sentence
-    #     # thus it is not okay to see huge CE loss for high t
-    #     # this is just trick to try to get better inference
-    #     return 1 / self.betas[t]
 
     # ----------------------------
     # Forward: q(x_t | x_0)
@@ -540,42 +226,6 @@ class D3PMSchedule:
         return sample_categorical(probs)
 
     # ----------------------------
-    # Posterior: q(x_{t-1} | x_t, x_0)
-    # ----------------------------
-
-    # @torch.no_grad()
-    # def posterior_distribution(self, x_t: torch.LongTensor, x0: torch.LongTensor, t: torch.LongTensor) -> torch.Tensor:
-    #     """
-    #     Compute the exact forward posterior (paper Eq. 3):
-    #         q(x_{t-1} | x_t, x_0)
-    #         = Cat( ((x_t Q_t^T) ⊙ (x_0 \bar Q_{t-1})) / Z )
-
-    #     Args:
-    #         x_t: (B, L) state ids at time t
-    #         x0 : (B, L) clean state ids
-    #         t  : (B,) timesteps in {1..T}
-
-    #     Returns:
-    #         probs_x_tm1_given_xt_x0: (B, L, K)
-    #     """
-    #     if not (t >= 1).all():
-    #         raise ValueError("t must be in {1..T}")
-
-    #     x_t_oh = to_one_hot(x_t, self.num_states).to(self.device, self.dtype)  # (B,L,K)
-    #     x0_oh  = to_one_hot(x0,  self.num_states).to(self.device, self.dtype)  # (B,L,K)
-
-    #     Q_t = self.forward_transition[t - 1]         # (B,K,K) with Q_t at index t-1
-    #     barQ_tm1 = self.forward_product[t - 1]       # (B,K,K) is \bar Q_{t-1}
-
-    #     # term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))  # x_t Q_t^T
-    #     term_from_x0 = torch.einsum("blk,bkj->blj", x0_oh, barQ_tm1)                # x0 \barQ_{t-1}
-    #     term_from_xt = torch.einsum("blj,bjk->blk", x_t_oh, Q_t)
-    #     # term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
-
-    #     unnormalized = term_from_xt * term_from_x0                                  # ⊙
-    #     return unnormalized / unnormalized.sum(dim=-1, keepdim=True).clamp_min(1e-12)
-
-    # ----------------------------
     # Reverse: p_θ(x_{t-1} | x_t) from x0-pred (paper Eq. 4)
     # ----------------------------
 
@@ -609,11 +259,6 @@ class D3PMSchedule:
 
         Q_t = self.forward_transition[t - 1]   # (B,K,K)
         barQ_tm1 = self.forward_product[t - 1] # (B,K,K)
-
-        # term_from_xt = torch.einsum("blk,bjk->blj", x_t_oh, Q_t.transpose(-1, -2))
-        # term_from_xt = torch.einsum("blk,bkj->blj", x_t_oh, Q_t.transpose(-1, -2))
-        # term_from_xt = torch.einsum("blj,bjk->blk", x_t_oh, Q_t)
-        # term_from_model = torch.einsum("blk,bkj->blj", p_x0_given_xt, barQ_tm1)
 
         term_from_xt = x_t_oh.matmul(Q_t.transpose(-1, -2))    # (B,L,K)
 
@@ -684,7 +329,6 @@ class D3PMSchedule:
         Returns:
             x_{t-1}: (B, L)
         """
-        # probs = self._reverse_distribution(x_t, t, p_x0_given_xt)
         probs = self.reverse_distribution_exact(x_t, t, p_x0_given_xt)
         if argmax:
             return probs.argmax(dim=-1)
@@ -701,8 +345,9 @@ class D3PMScheduleConfig(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+    type: Literal["d3pm"] = "d3pm"
     num_states: int = 5
-    num_steps: int
+    num_steps: int = 128
     kernel: str = "mask_absorbing"  # "uniform" or "mask_absorbing"
     mask_state_id: int = 4  # due to SequenceLSOEIDataset
     device: str = "cpu"
@@ -737,4 +382,3 @@ class D3PMScheduleConfig(BaseModel):
             device=self.device,
             dtype=dt,
         )
-
