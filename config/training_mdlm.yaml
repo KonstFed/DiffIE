@@ -43,11 +43,11 @@ model:
     num_heads: 8
     dropout: 0.0
     fuse: "concat"
-    time_embed: "none"
+    time_embed: "learned"
     num_timesteps: 128
   temperature: 1.0
   topk: null
-  argmax: false
+  argmax: true
   use_remasking: false
   remask_threshold_low: 0.3
   remask_threshold_high: 0.9
@@ -56,6 +56,10 @@ data:
   train_dataset:
     type: "cached"
     datasets:
+      - type: "imojie"
+        path: "dataset/data/train/4cr_qpbo_extractions.tsv"
+        tokenizer_name: "bert-base-uncased"
+        min_success_pct: 100.0
       - type: "sequence"
         split: "train"
         tokenizer_name: "bert-base-uncased"
