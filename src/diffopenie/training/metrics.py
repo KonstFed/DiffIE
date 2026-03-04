@@ -25,6 +25,39 @@ def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
     return p, r, f
 
 
+def _metrics_single_sequence(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor | None,
+    num_classes: int,
+    mask_state_id: int | None,
+) -> tuple[float, float, float, float | None]:
+    """Compute P/R/F1 and ratio_masked for one sequence. pred/target/mask: [L]."""
+    valid = (
+        mask.bool()
+        if mask is not None
+        else torch.ones_like(pred, dtype=torch.bool, device=pred.device)
+    )
+    ratio_masked = None
+    if mask_state_id is not None:
+        valid_count = valid.sum().item()
+        masked_count = ((pred == mask_state_id) & valid).sum().item()
+        ratio_masked = masked_count / max(valid_count, 1)
+    pred = pred[valid]
+    target = target[valid]
+    tp_list, fp_list, fn_list = [], [], []
+    for c in range(num_classes):
+        pc, tc = pred == c, target == c
+        tp_list.append((pc & tc).sum().item())
+        fp_list.append((pc & ~tc).sum().item())
+        fn_list.append((~pc & tc).sum().item())
+    tp = sum(tp_list[1:])
+    fp = sum(fp_list[1:])
+    fn = sum(fn_list[1:])
+    p, r, f = _prf(tp, fp, fn)
+    return p, r, f, ratio_masked
+
+
 @dataclass
 class MetricsResult:
     """Token-overlap P/R/F1 for triplet extraction."""
@@ -170,6 +203,11 @@ class PerTimestepMetricsResult:
     recall: torch.Tensor  # [T]
     f1: torch.Tensor  # [T]
     ratio_masked: torch.Tensor | None = None  # [T], fraction of valid tokens in mask state
+    # Per-sequence trajectories [N, T] for distribution-over-t plots
+    per_sequence_precision: torch.Tensor | None = None
+    per_sequence_recall: torch.Tensor | None = None
+    per_sequence_f1: torch.Tensor | None = None
+    per_sequence_ratio_masked: torch.Tensor | None = None
 
 
 @dataclass
@@ -181,7 +219,10 @@ class ValidationResult:
 
 
 class PerTimestepTripletMetrics(Metric):
-    """CaRB-style P/R/F1 per diffusion timestep for intermediate generation."""
+    """CaRB-style P/R/F1 per diffusion timestep for intermediate generation.
+
+    Also computes and stores per-sequence P/R/F1/ratio_masked over t for trajectory plots.
+    """
 
     full_state_update = False
 
@@ -193,10 +234,24 @@ class PerTimestepTripletMetrics(Metric):
     ):
         super().__init__()
         self.num_steps = num_steps
+        self.num_classes = num_classes
+        self.mask_state_id = mask_state_id
         self._per_t = [
             TripletMetrics(num_classes=num_classes, mask_state_id=mask_state_id)
             for _ in range(num_steps)
         ]
+        # Per-sequence trajectories (not registered as state; reset in reset())
+        self._per_seq_precision: list[torch.Tensor] = []
+        self._per_seq_recall: list[torch.Tensor] = []
+        self._per_seq_f1: list[torch.Tensor] = []
+        self._per_seq_ratio_masked: list[torch.Tensor] = []
+
+    def reset(self):
+        super().reset()
+        self._per_seq_precision = []
+        self._per_seq_recall = []
+        self._per_seq_f1 = []
+        self._per_seq_ratio_masked = []
 
     def to(self, device):
         for m in self._per_t:
@@ -213,9 +268,37 @@ class PerTimestepTripletMetrics(Metric):
         intermediates: [B, L, T] predictions at each reverse step.
         target: [B, L], mask: [B, L].
         """
-        T = intermediates.shape[2]
+        B, L, T = intermediates.shape
         for t in range(T):
             self._per_t[t].update(intermediates[:, :, t], target, mask)
+        # Per-sequence metrics for each (b, t)
+        m = mask if mask is not None else torch.ones_like(target, device=target.device)
+        for b in range(B):
+            p_list, r_list, f_list, rm_list = [], [], [], []
+            for t in range(T):
+                p, r, f, rm = _metrics_single_sequence(
+                    intermediates[b, :, t],
+                    target[b],
+                    m[b],
+                    self.num_classes,
+                    self.mask_state_id,
+                )
+                p_list.append(p)
+                r_list.append(r)
+                f_list.append(f)
+                rm_list.append(rm if rm is not None else 0.0)
+            self._per_seq_precision.append(
+                torch.tensor(p_list, dtype=torch.float32, device=intermediates.device)
+            )
+            self._per_seq_recall.append(
+                torch.tensor(r_list, dtype=torch.float32, device=intermediates.device)
+            )
+            self._per_seq_f1.append(
+                torch.tensor(f_list, dtype=torch.float32, device=intermediates.device)
+            )
+            self._per_seq_ratio_masked.append(
+                torch.tensor(rm_list, dtype=torch.float32, device=intermediates.device)
+            )
 
     def compute(self) -> PerTimestepMetricsResult:
         precisions, recalls, f1s = [], [], []
@@ -229,9 +312,28 @@ class PerTimestepTripletMetrics(Metric):
         ratio_masked = None
         if all(x is not None for x in ratio_masked_list):
             ratio_masked = torch.tensor(ratio_masked_list, dtype=torch.float32)
+        # Stack per-sequence trajectories [N, T]
+        per_seq_p = (
+            torch.stack(self._per_seq_precision).cpu()
+            if self._per_seq_precision
+            else None
+        )
+        per_seq_r = (
+            torch.stack(self._per_seq_recall).cpu() if self._per_seq_recall else None
+        )
+        per_seq_f = torch.stack(self._per_seq_f1).cpu() if self._per_seq_f1 else None
+        per_seq_rm = (
+            torch.stack(self._per_seq_ratio_masked).cpu()
+            if self._per_seq_ratio_masked
+            else None
+        )
         return PerTimestepMetricsResult(
             precision=torch.tensor(precisions, dtype=torch.float32),
             recall=torch.tensor(recalls, dtype=torch.float32),
             f1=torch.tensor(f1s, dtype=torch.float32),
             ratio_masked=ratio_masked,
+            per_sequence_precision=per_seq_p,
+            per_sequence_recall=per_seq_r,
+            per_sequence_f1=per_seq_f,
+            per_sequence_ratio_masked=per_seq_rm,
         )

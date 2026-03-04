@@ -2,10 +2,14 @@
 
 from pathlib import Path
 
+import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 from matplotlib.gridspec import GridSpec
+
+# Percentiles for confidence band (e.g. 25–75% band)
+PER_T_BAND_LOW, PER_T_BAND_HIGH = 25.0, 75.0
 
 from diffopenie.training.metrics import (
     CLASS_NAMES,
@@ -218,7 +222,7 @@ class TrainingLogger:
         train_per_t_carb: PerTimestepMetricsResult | None,
         epoch: int,
     ):
-        """Plot val and train CaRB metrics per timestep in one figure (2 subplots)."""
+        """Plot val and train CaRB metrics per timestep with confidence bands (percentile over sequences)."""
         if self.log_path is None:
             return
         plot_path = self.log_path.parent / "carb_per_t.png"
@@ -237,17 +241,40 @@ class TrainingLogger:
                 ax.set_visible(False)
                 continue
             T = data.f1.shape[0]
-            t_vals = list(range(T, 0, -1))
+            t_vals = np.array(list(range(T, 0, -1)))
+            band_alpha = 0.25
+            # Confidence band from per-sequence percentiles
+            if data.per_sequence_f1 is not None:
+                arr = data.per_sequence_f1.numpy()
+                lo = np.percentile(arr, PER_T_BAND_LOW, axis=0)
+                hi = np.percentile(arr, PER_T_BAND_HIGH, axis=0)
+                ax.fill_between(t_vals, lo, hi, color="C2", alpha=band_alpha, zorder=1)
+            if data.per_sequence_precision is not None:
+                arr = data.per_sequence_precision.numpy()
+                lo = np.percentile(arr, PER_T_BAND_LOW, axis=0)
+                hi = np.percentile(arr, PER_T_BAND_HIGH, axis=0)
+                ax.fill_between(t_vals, lo, hi, color="C0", alpha=band_alpha, zorder=1)
+            if data.per_sequence_recall is not None:
+                arr = data.per_sequence_recall.numpy()
+                lo = np.percentile(arr, PER_T_BAND_LOW, axis=0)
+                hi = np.percentile(arr, PER_T_BAND_HIGH, axis=0)
+                ax.fill_between(t_vals, lo, hi, color="C1", alpha=band_alpha, zorder=1)
+            if data.per_sequence_ratio_masked is not None:
+                arr = data.per_sequence_ratio_masked.numpy()
+                lo = np.percentile(arr, PER_T_BAND_LOW, axis=0)
+                hi = np.percentile(arr, PER_T_BAND_HIGH, axis=0)
+                ax.fill_between(t_vals, lo, hi, color="C3", alpha=band_alpha, zorder=1)
+            # Usual aggregate metrics (on top)
             p = data.precision.cpu().numpy()
             r = data.recall.cpu().numpy()
             f = data.f1.cpu().numpy()
-            ax.plot(t_vals, p, label="Precision", marker="o", markersize=3)
-            ax.plot(t_vals, r, label="Recall", marker="s", markersize=3)
-            ax.plot(t_vals, f, label="F1", marker="^", markersize=3)
+            ax.plot(t_vals, p, label="Precision", marker="o", markersize=3, color="C0", zorder=10)
+            ax.plot(t_vals, r, label="Recall", marker="s", markersize=3, color="C1", zorder=10)
+            ax.plot(t_vals, f, label="F1", marker="^", markersize=3, color="C2", zorder=10)
             if data.ratio_masked is not None:
                 rm = data.ratio_masked.cpu().numpy()
                 ax.plot(
-                    t_vals, rm, label="Ratio masked", marker="d", markersize=3,
+                    t_vals, rm, label="Ratio masked", marker="d", markersize=3, color="C3", zorder=10,
                 )
             ax.set_xlabel("Timestep t")
             ax.set_ylabel("Score")
