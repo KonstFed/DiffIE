@@ -87,7 +87,7 @@ if __name__ == "__main__":
     from diffopenie.models.discrete.discrete_model import SchedulerConfig
     from diffopenie.utils import load_config
 
-    config_path = sys.argv[1] if len(sys.argv) > 1 else "config/training_discrete.yaml"
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "config/training_mdlm.yaml"
 
     class _Cfg(BaseModel):
         model_config = ConfigDict(extra="allow")

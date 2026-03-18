@@ -137,8 +137,9 @@ class SpanLSOIEDataset(LSOIEDataset):
         split: str | list[str] = "train",
         tokenizer_name: str = "bert-base-uncased",
         filter_spans: bool = True,
+        drop_duplicate_sentences: bool = False,
     ):
-        super().__init__(split=split)
+        super().__init__(split=split, drop_duplicate_sentences=drop_duplicate_sentences)
         if filter_spans:
             self._filter()
         else:
@@ -213,8 +214,9 @@ class SequenceLSOEIDataset(LSOIEDataset):
         split: str | list[str] = "train",
         tokenizer_name: str = "bert-base-uncased",
         filter_spans: bool = False,
+        drop_duplicate_sentences: bool = False,
     ):
-        super().__init__(split=split)
+        super().__init__(split=split, drop_duplicate_sentences=drop_duplicate_sentences)
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
     def __getitem__(self, idx: int) -> dict:
@@ -264,12 +266,14 @@ class SpanLSOEIDatasetConfig(BaseModel):
     split: str | list[str] = "train"
     tokenizer_name: str = "bert-base-uncased"
     filter_spans: bool = True
+    drop_duplicate_sentences: bool = False
 
     def create(self) -> SpanLSOIEDataset:
         return SpanLSOIEDataset(
             split=self.split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
+            drop_duplicate_sentences=self.drop_duplicate_sentences,
         )
 
 
@@ -281,10 +285,12 @@ class SequenceLSOEIDatasetConfig(BaseModel):
     split: str | list[str] = "train"
     tokenizer_name: str = "bert-base-uncased"
     filter_spans: bool = False
+    drop_duplicate_sentences: bool = False
 
     def create(self) -> SequenceLSOEIDataset:
         return SequenceLSOEIDataset(
             split=self.split,
             tokenizer_name=self.tokenizer_name,
             filter_spans=self.filter_spans,
+            drop_duplicate_sentences=self.drop_duplicate_sentences,
         )
