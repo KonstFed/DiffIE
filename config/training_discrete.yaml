@@ -15,16 +15,16 @@ trainer:
 model:
   encoder:
     model_name: "bert-base-uncased"
-    freeze: false   # set true to freeze BERT; false to fine-tune alongside the denoiser
+    freeze: false # set true to freeze BERT; false to fine-tune alongside the denoiser
     add_special_tokens: true
   # scheduler type: "d3pm" (transition matrices) or "mdlm" (concrete score, mask-absorbing only)
   scheduler:
     type: d3pm
-    num_states: 5   # O, subject, object, predicate, # make 5 for MASK
-    num_steps: 128
+    num_states: 5 # O, subject, object, predicate, # make 5 for MASK
+    num_steps: 16
     kernel: "mask_absorbing"
     mask_state_id: 4 # only for mask
-    device: "cpu"    # overridden by trainer device at runtime
+    device: "cpu" # overridden by trainer device at runtime
     dtype: "float32"
     # beta_schedule:
     #   type: cosine
@@ -64,19 +64,19 @@ model:
   denoiser:
     num_states: 5
     model_dim: 512
-    ctx_dim: 768     # BERT hidden size
+    ctx_dim: 768 # BERT hidden size
     num_layers: 2
     num_heads: 8
     dropout: 0.0
     fuse: "concat"
     time_embed: "none"
-    num_timesteps: 128   # required when time_embed: "learnable"
+    num_timesteps: 16 # required when time_embed: "learnable"
   temperature: 1.0
   topk: null
   argmax: false
   use_remasking: false
-  remask_threshold_low: 0.3   # at t=1
-  remask_threshold_high: 0.9  # at t=T
+  remask_threshold_low: 0.3 # at t=1
+  remask_threshold_high: 0.9 # at t=T
 
 # Train: Imojie TSV + LSOIE train. Val: LSOIE validation + LSOIE test (each wrapped in CachedDataset).
 # When fine-tuning BERT (model.encoder.freeze: false), set encoder to null so embeddings
@@ -93,7 +93,7 @@ data:
         split: "train"
         tokenizer_name: "bert-base-uncased"
         filter_spans: true
-    encoder: null   # null when fine-tuning BERT (model computes embeddings each step)
+    encoder: null # null when fine-tuning BERT (model computes embeddings each step)
     batch_size: 32
   val_dataset:
     type: "cached"
