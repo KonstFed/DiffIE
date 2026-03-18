@@ -19,9 +19,9 @@ class EpochResult:
 
 
 def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
-    p = tp / max(tp + fp, 1)
-    r = tp / max(tp + fn, 1)
-    f = 2 * p * r / max(p + r, 1e-8)
+    p = tp / (tp + fp) if (tp + fp) > 0 else float("nan")
+    r = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
+    f = 2 * p * r / (p + r) if (p + r) > 0 else float("nan")
     return p, r, f
 
 
