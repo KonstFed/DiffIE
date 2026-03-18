@@ -14,7 +14,7 @@ model:
   encoder:
     model_name: "bert-base-uncased"
     freeze: false
-    add_special_tokens: true
+    add_special_tokens: false
   scheduler:
     type: mdlm
     num_states: 5
@@ -74,7 +74,7 @@ data:
         split: ["validation", "test"]
         tokenizer_name: "bert-base-uncased"
         filter_spans: true
-        drop_duplicate_sentences: true
+        drop_duplicate_sentences: false
     encoder: null
     batch_size: 32
   batch_size: 64
