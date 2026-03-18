@@ -1,16 +1,5 @@
 """Masked Diffusion Language Model (MDLM) schedule.
 
-Unlike D3PM which uses dense transition matrices Q_t, MDLM parameterizes the
-forward process directly via survival probabilities α(t):
-    P(x_t = x_0) = α_t,   P(x_t = MASK) = 1 − α_t   (independent per token)
-
-Reverse uses the concrete score parameterization:
-    For masked tokens at time t:
-        P(x_{t-1} = j)    = (α_{t-1} − α_t) / (1 − α_t) · p_θ(x_0=j | x_t)  for j ≠ MASK
-        P(x_{t-1} = MASK)  = (1 − α_{t-1}) / (1 − α_t)
-
-    For unmasked tokens: x_{t-1} = x_t  (never re-mask during reverse)
-
 Reference: Sahoo et al., "Simple and Effective Masked Diffusion Language Models", 2024.
 """
 
@@ -71,7 +60,9 @@ class MDLMSchedule:
 
         # Derived: betas from alphas for compatibility
         # β_t = 1 − α_t / α_{t-1}
-        self.betas = (1.0 - self.alphas[1:] / self.alphas[:-1].clamp_min(1e-10)).clamp(1e-6, 0.999)
+        self.betas = (1.0 - self.alphas[1:] / self.alphas[:-1].clamp_min(1e-10)).clamp(
+            1e-6, 0.999
+        )
 
         # Build D3PM-compatible matrices (cheap for small K)
         self.forward_transition = self._build_forward_transition()
@@ -124,7 +115,9 @@ class MDLMSchedule:
         self.device = device_str
         self.alphas = self.alphas.to(device_str, dtype=self.dtype)
         self.betas = self.betas.to(device_str, dtype=self.dtype)
-        self.forward_transition = self.forward_transition.to(device_str, dtype=self.dtype)
+        self.forward_transition = self.forward_transition.to(
+            device_str, dtype=self.dtype
+        )
         self.forward_product = self.forward_product.to(device_str, dtype=self.dtype)
         return self
 
@@ -135,8 +128,11 @@ class MDLMSchedule:
     def sample_t(self, B: int) -> torch.LongTensor:
         """Uniform timestep sampling in {1..T}."""
         return torch.randint(
-            1, self.num_steps + 1, size=(B,),
-            device=self.device, dtype=torch.long,
+            1,
+            self.num_steps + 1,
+            size=(B,),
+            device=self.device,
+            dtype=torch.long,
         )
 
     # ----------------------------
@@ -145,7 +141,9 @@ class MDLMSchedule:
 
     @torch.no_grad()
     def forward_distribution(
-        self, x0: torch.LongTensor, t: torch.LongTensor,
+        self,
+        x0: torch.LongTensor,
+        t: torch.LongTensor,
     ) -> torch.Tensor:
         """
         q(x_t | x_0) via independent masking.
@@ -168,7 +166,7 @@ class MDLMSchedule:
 
         probs = torch.zeros(B, L, K, device=self.device, dtype=self.dtype)
         probs.scatter_(-1, x0.unsqueeze(-1), alpha_t.expand(B, L, 1))
-        probs[..., m] += (1.0 - alpha_t.squeeze(-1))  # (B, L)
+        probs[..., m] += 1.0 - alpha_t.squeeze(-1)  # (B, L)
 
         # If x_0 is MASK, force P(MASK)=1
         mask_dist = torch.zeros(B, L, K, device=self.device, dtype=self.dtype)
@@ -178,7 +176,9 @@ class MDLMSchedule:
 
     @torch.no_grad()
     def sample_forward(
-        self, x0: torch.LongTensor, t: torch.LongTensor,
+        self,
+        x0: torch.LongTensor,
+        t: torch.LongTensor,
     ) -> torch.LongTensor:
         """
         Sample x_t ~ q(x_t | x_0) by independent token masking.
@@ -190,7 +190,7 @@ class MDLMSchedule:
         alpha_t = self.alphas[t].view(B, 1)  # (B, 1)
 
         survive = torch.rand(B, L, device=self.device) < alpha_t
-        is_already_mask = (x0 == m)
+        is_already_mask = x0 == m
         survive = survive | is_already_mask  # MASK tokens always stay MASK
         x_t = torch.where(survive, x0, torch.full_like(x0, m))
         return x_t
@@ -220,7 +220,7 @@ class MDLMSchedule:
         K = self.num_states
         m = self.mask_state_id
 
-        alpha_t = self.alphas[t].float()        # (B,)
+        alpha_t = self.alphas[t].float()  # (B,)
         alpha_tm1 = self.alphas[t - 1].float()  # (B,)
         one_minus_at = (1.0 - alpha_t).clamp_min(1e-10)
 

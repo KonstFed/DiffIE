@@ -26,9 +26,9 @@ model:
     mask_state_id: 4 # only for mask
     device: "cpu" # overridden by trainer device at runtime
     dtype: "float32"
-    # beta_schedule:
-    #   type: cosine
-    #   s: 0.008
+    beta_schedule:
+      type: cosine
+      s: 0.008
     # beta_schedule:
     #   type: mi
     #   mode: cosine
@@ -39,10 +39,10 @@ model:
     #   type: log_linear
     #   beta_start: 1e-5
     #   beta_end: 0.2
-    beta_schedule:
-      type: linear
-      beta_start: 1e-4
-      beta_end: 0.07
+    # beta_schedule:
+    #   type: linear
+    #   beta_start: 1e-4
+    #   beta_end: 0.07
   # --- MDLM alternative (uncomment to switch) ---
   # scheduler:
   #   type: mdlm
