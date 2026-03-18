@@ -69,7 +69,7 @@ model:
     num_heads: 8
     dropout: 0.0
     fuse: "concat"
-    time_embed: "none"
+    time_embed: "learnable"
     num_timesteps: 16 # required when time_embed: "learnable"
   temperature: 1.0
   topk: null
