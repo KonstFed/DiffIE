@@ -74,6 +74,7 @@ data:
         split: ["validation", "test"]
         tokenizer_name: "bert-base-uncased"
         filter_spans: true
+        drop_duplicate_sentences: true
     encoder: null
     batch_size: 32
   batch_size: 64
