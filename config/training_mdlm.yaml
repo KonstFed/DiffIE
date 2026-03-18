@@ -18,7 +18,7 @@ model:
   scheduler:
     type: mdlm
     num_states: 5
-    num_steps: 1024
+    num_steps: 16
     mask_state_id: 4
     device: "cpu"
     dtype: "float32"
@@ -44,7 +44,7 @@ model:
     dropout: 0.0
     fuse: "concat"
     time_embed: "learnable"
-    num_timesteps: 1024
+    num_timesteps: 16
   temperature: 1.0
   topk: null
   argmax: false
