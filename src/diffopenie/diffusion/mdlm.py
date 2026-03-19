@@ -135,6 +135,12 @@ class MDLMSchedule:
             dtype=torch.long,
         )
 
+    def weight(self, t: torch.LongTensor) -> torch.Tensor:
+        """NELBO per-timestep weight: w(t) = (α_{t-1} − α_t) / (1 − α_t)."""
+        alpha_t = self.alphas[t].float()
+        alpha_tm1 = self.alphas[t - 1].float()
+        return ((alpha_tm1 - alpha_t) / (1.0 - alpha_t).clamp_min(1e-10)).clamp_min(0.0)
+
     # ----------------------------
     # Forward: q(x_t | x_0)
     # ----------------------------

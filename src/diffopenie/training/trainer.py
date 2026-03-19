@@ -193,6 +193,9 @@ class Trainer:
         ).reshape(B, L)
         valid = (target != IGNORE_INDEX).float()
         per_sample_loss = (per_token * valid).sum(1) / valid.sum(1).clamp(min=1)
+        if hasattr(self.model.scheduler, "weight"):
+            w_t = self.model.scheduler.weight(t)  # (B,)
+            per_sample_loss = per_sample_loss * w_t
         loss = per_sample_loss.mean()
 
         metric_mask = attention_mask.clone()
