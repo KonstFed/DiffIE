@@ -148,6 +148,10 @@ class DiscreteDenoiser(nn.Module):
         else:
             self.fuse_proj = None
 
+        # Post-fusion normalization and dropout
+        self.fuse_ln = nn.LayerNorm(model_dim)
+        self.fuse_dropout = nn.Dropout(dropout)
+
         # Transformer encoder stack
         self.blocks = nn.ModuleList(
             [TransformerDenoiserBlock(model_dim, num_heads, dropout=dropout) for _ in range(num_layers)]
@@ -183,10 +187,13 @@ class DiscreteDenoiser(nn.Module):
             h = torch.cat([x_state + (t_emb if t_emb is not None else 0), x_ctx], dim=-1)  # (B, L, 2D)
             h = self.fuse_proj(h)                     # (B, L, D)
 
+        h = self.fuse_dropout(self.fuse_ln(h))
+        h_input = h
+
         for blk in self.blocks:
             h = blk(h, key_padding_mask=key_padding_mask)
 
-        h = self.final_ln(h)
+        h = self.final_ln(h + h_input)
         logits = self.to_logits(h)                    # (B, L, K)
         return logits
 
