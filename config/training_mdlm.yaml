@@ -6,7 +6,7 @@
 trainer:
   type: "discrete_trainer"
   device: null
-  learning_rate: 1e-3
+  learning_rate: 2e-4
   encoder_lr: 5e-5
   weight_decay: 0.01
   label_smoothing: 0.1
