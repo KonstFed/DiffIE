@@ -1,5 +1,6 @@
 """Discrete diffusion trainer (merged from BaseTrainer + DiscreteTrainer)."""
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Literal
 import torch
 import torch.nn as nn
 from pydantic import BaseModel, ConfigDict, model_validator
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -47,10 +49,14 @@ class Trainer:
         model: DiscreteModel,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         learning_rate: float = 1e-4,
+        encoder_lr: float | None = None,
         weight_decay: float = 0.01,
         max_grad_norm: float = 1.0,
         class_weights: list[float] | None = None,
         background_drop_prob: float = 0.8,
+        label_smoothing: float = 0.0,
+        warmup_steps: int = 0,
+        total_steps: int | None = None,
     ):
         self.model = model.to(device)
         self.model.scheduler.to(device)
@@ -67,10 +73,36 @@ class Trainer:
             reduction="none",
             ignore_index=IGNORE_INDEX,
             weight=torch.tensor(weights, dtype=torch.float32, device=device),
+            label_smoothing=label_smoothing,
         )
-        self.optimizer = torch.optim.AdamW(
-            model.parameters(), lr=learning_rate, weight_decay=weight_decay,
-        )
+
+        # Separate parameter groups for encoder vs denoiser
+        encoder_params = list(model.encoder.parameters())
+        encoder_ids = {id(p) for p in encoder_params}
+        denoiser_params = [p for p in model.parameters() if id(p) not in encoder_ids]
+        enc_lr = encoder_lr if encoder_lr is not None else learning_rate
+
+        self.optimizer = torch.optim.AdamW([
+            {"params": encoder_params, "lr": enc_lr},
+            {"params": denoiser_params, "lr": learning_rate},
+        ], weight_decay=weight_decay)
+
+        # LR scheduler: linear warmup then cosine decay
+        self.warmup_steps = warmup_steps
+        self.total_steps = total_steps
+        if warmup_steps > 0 and total_steps is not None and total_steps > 0:
+            self.lr_scheduler = LambdaLR(
+                self.optimizer,
+                lr_lambda=self._warmup_cosine_lambda,
+            )
+        else:
+            self.lr_scheduler = None
+
+    def _warmup_cosine_lambda(self, step: int) -> float:
+        if step < self.warmup_steps:
+            return step / max(self.warmup_steps, 1)
+        progress = (step - self.warmup_steps) / max(self.total_steps - self.warmup_steps, 1)
+        return 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
 
     def _to_device(self, batch: dict[str, torch.Tensor]):
         return (
@@ -151,6 +183,8 @@ class Trainer:
                 self.model.parameters(), self.max_grad_norm,
             )
             self.optimizer.step()
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
             self.optimizer.zero_grad()
             self.global_step += 1
 
@@ -366,9 +400,12 @@ class TrainerConfig(BaseModel):
     type: Literal["discrete_trainer"] = "discrete_trainer"
     device: str | None = None
     learning_rate: float = 1e-4
+    encoder_lr: float | None = None
     weight_decay: float = 0.01
     max_grad_norm: float = 1.0
     background_drop_prob: float = 0.8
+    label_smoothing: float = 0.0
+    warmup_steps: int = 0
 
     @model_validator(mode="after")
     def _auto_device(self):
@@ -376,12 +413,16 @@ class TrainerConfig(BaseModel):
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         return self
 
-    def create(self, model: DiscreteModel) -> Trainer:
+    def create(self, model: DiscreteModel, total_steps: int | None = None) -> Trainer:
         return Trainer(
             model=model,
             device=self.device,
             learning_rate=self.learning_rate,
+            encoder_lr=self.encoder_lr,
             weight_decay=self.weight_decay,
             max_grad_norm=self.max_grad_norm,
             background_drop_prob=self.background_drop_prob,
+            label_smoothing=self.label_smoothing,
+            warmup_steps=self.warmup_steps,
+            total_steps=total_steps,
         )

@@ -86,14 +86,14 @@ def create_training_components(
     config: TrainingConfig,
 ) -> tuple[DiscreteModelConfig, Trainer, DataLoader, DataLoader]:
     model = config.model.create()
-    trainer = config.trainer.create(model=model)
 
     train_cfg = config.data.get_train_config()
     val_cfg = config.data.get_val_config()
     collator = _collator_for(train_cfg, config.data)
 
+    train_ds = train_cfg.create()
     train_dl = DataLoader(
-        train_cfg.create(),
+        train_ds,
         batch_size=config.data.batch_size,
         shuffle=True,
         num_workers=config.data.num_workers,
@@ -106,6 +106,12 @@ def create_training_components(
         num_workers=config.data.num_workers,
         collate_fn=collator,
     )
+
+    # Compute total training steps for LR scheduler
+    steps_per_epoch = len(train_dl)
+    total_steps = steps_per_epoch * config.num_epochs
+    trainer = config.trainer.create(model=model, total_steps=total_steps)
+
     return model, trainer, train_dl, val_dl
 
 
