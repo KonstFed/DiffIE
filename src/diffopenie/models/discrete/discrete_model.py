@@ -42,6 +42,8 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         use_remasking: bool = False,
         remask_threshold_low: float = 0.3,
         remask_threshold_high: float = 1.0,
+        carb_k: int = 10,
+        carb_topk: int = 5,
     ):
         super().__init__()
         self.encoder = encoder
@@ -53,6 +55,8 @@ class DiscreteModel(nn.Module, BaseTripletModel):
         self.use_remasking = use_remasking
         self.remask_threshold_low = remask_threshold_low
         self.remask_threshold_high = remask_threshold_high
+        self.carb_k = carb_k
+        self.carb_topk = carb_topk
 
     @property
     def device(self) -> torch.device:
@@ -233,6 +237,8 @@ class DiscreteModelConfig(BaseModel):
     use_remasking: bool = False
     remask_threshold_low: float = 0.3
     remask_threshold_high: float = 1.0
+    carb_k: int = 10
+    carb_topk: int = 5
 
     def create(self) -> DiscreteModel:
         """Build DiscreteModel from configs."""
@@ -246,4 +252,6 @@ class DiscreteModelConfig(BaseModel):
             use_remasking=self.use_remasking,
             remask_threshold_low=self.remask_threshold_low,
             remask_threshold_high=self.remask_threshold_high,
+            carb_k=self.carb_k,
+            carb_topk=self.carb_topk,
         )

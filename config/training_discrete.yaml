@@ -13,6 +13,8 @@ trainer:
   warmup_steps: 500
   # Ignore class 0 (background) in loss with this probability to balance class inequality (0 = off).
   background_drop_prob: 0.0
+  carb_gold_path: "../CaRB/data/gold/dev.tsv"
+  carb_sentences_path: "../CaRB/data/dev.txt"
 
 model:
   encoder:
@@ -79,6 +81,8 @@ model:
   use_remasking: false
   remask_threshold_low: 0.3 # at t=1
   remask_threshold_high: 0.9 # at t=T
+  carb_k: 10
+  carb_topk: 5
 
 # Train: Imojie TSV + LSOIE train. Val: LSOIE validation + LSOIE test (each wrapped in CachedDataset).
 # When fine-tuning BERT (model.encoder.freeze: false), set encoder to null so embeddings

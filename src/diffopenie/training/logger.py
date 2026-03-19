@@ -38,6 +38,7 @@ class TrainingLogger:
         t_sampled_counts: torch.Tensor | None = None,
         per_t_carb_metrics: PerTimestepMetricsResult | None = None,
         train_per_t_carb_metrics: PerTimestepMetricsResult | None = None,
+        carb_result=None,
     ):
         row: dict = {"epoch": epoch, "train_loss": train_loss}
         if val_loss is not None:
@@ -48,6 +49,8 @@ class TrainingLogger:
             row.update(carb_metrics.to_dict(""))
         if train_carb_metrics is not None:
             row.update(train_carb_metrics.to_dict("train_"))
+        if carb_result is not None:
+            row.update(carb_result.to_dict(""))
         self._rows.append(row)
 
         if self.log_path is None:
@@ -72,6 +75,8 @@ class TrainingLogger:
         carb_metrics: MetricsResult | None,
         train_carb_metrics: MetricsResult | None,
         best_f1: float | None = None,
+        new_best: float | None = None,
+        carb_result=None,
     ):
         C, B, D, M, G, R = (
             "\033[36m", "\033[1m", "\033[2m", "\033[35m", "\033[32m", "\033[0m",
@@ -101,8 +106,18 @@ class TrainingLogger:
                 f"R={carb_metrics.recall:.3f}  "
                 f"F1={carb_metrics.f1:.3f}{R}"
             )
-        if best_f1 is not None:
-            print(f"  {G}New best F1: {best_f1:.4f}{R}")
+        if carb_result:
+            print(
+                f"  {B}{M}CaRB     "
+                f"AUC={carb_result.auc:.3f}  "
+                f"P={carb_result.precision:.3f}  "
+                f"R={carb_result.recall:.3f}  "
+                f"F1={carb_result.f1:.3f}{R}"
+            )
+        # Support both old 'best_f1' and new 'new_best' parameter names
+        _best = new_best if new_best is not None else best_f1
+        if _best is not None:
+            print(f"  {G}New best F1: {_best:.4f}{R}")
 
     # -- Plotting ---------------------------------------------------------
 
@@ -114,58 +129,67 @@ class TrainingLogger:
             return
 
         plot_path = self.log_path.parent / f"{self.log_path.stem}_plots.png"
-        fig = plt.figure(figsize=(12, 16))
-        gs = GridSpec(6, 4, figure=fig)
-        epochs = df["epoch"]
 
-        ax1 = fig.add_subplot(gs[0, :])
-        _plot_cols(ax1, df, epochs, [("train_loss", "Train"), ("val_loss", "Val")])
+        # Determine which metric sections have data
+        has_lsoie = any(c in df.columns for c in ("precision", "recall", "f1"))
+        has_carb = any(c in df.columns for c in ("carb_auc", "carb_f1"))
+        n_rows = 2 + int(has_lsoie) + int(has_carb)
+
+        fig = plt.figure(figsize=(12, 3.5 * n_rows))
+        gs = GridSpec(n_rows, 1, figure=fig)
+        epochs = df["epoch"]
+        row = 0
+
+        ax1 = fig.add_subplot(gs[row])
+        _plot_cols(ax1, df, epochs, [
+            ("train_loss", "Train"),
+            ("val_loss", "Val"),
+        ])
         ax1.set_title("Loss")
         ax1.grid(True, alpha=0.3)
+        row += 1
 
-        ax2 = fig.add_subplot(gs[1, :], sharex=ax1)
+        ax2 = fig.add_subplot(gs[row], sharex=ax1)
         _plot_cols(ax2, df, epochs, [
-            ("direct_precision", "P"), ("direct_recall", "R"), ("direct_f1", "F1"),
+            ("direct_precision", "P"),
+            ("direct_recall", "R"),
+            ("direct_f1", "F1"),
         ])
         ax2.set_title("Direct metrics (train forward pass)")
         ax2.grid(True, alpha=0.3)
+        row += 1
 
-        ax3 = fig.add_subplot(gs[2, :], sharex=ax1)
-        _plot_cols(ax3, df, epochs, [
-            ("precision", "P"), ("recall", "R"), ("f1", "F1"),
-        ])
-        ax3.set_title("CaRB validation metrics")
-        ax3.grid(True, alpha=0.3)
-
-        ax4 = fig.add_subplot(gs[3, :], sharex=ax1)
-        _plot_cols(ax4, df, epochs, [
-            ("train_precision", "P"), ("train_recall", "R"), ("train_f1", "F1"),
-        ])
-        ax4.set_title("CaRB train subset metrics")
-        ax4.grid(True, alpha=0.3)
-
-        for c, name in enumerate(CLASS_NAMES):
-            ax = fig.add_subplot(gs[4, c], sharex=ax1)
-            _plot_cols(ax, df, epochs, [
-                (f"train_precision_{name}", "P"),
-                (f"train_recall_{name}", "R"),
-                (f"train_f1_{name}", "F1"),
+        if has_lsoie:
+            ax_lsoie = fig.add_subplot(gs[row], sharex=ax1)
+            _plot_cols(ax_lsoie, df, epochs, [
+                ("precision", "Val P"),
+                ("recall", "Val R"),
+                ("f1", "Val F1"),
+                ("train_precision", "Train P"),
+                ("train_recall", "Train R"),
+                ("train_f1", "Train F1"),
             ])
-            ax.set_title(f"Train: {name}")
-            ax.set_ylim(0, 1.05)
-            ax.grid(True, alpha=0.3)
+            ax_lsoie.set_title("LSOIE token-overlap validation")
+            ax_lsoie.set_ylim(0, 1.05)
+            ax_lsoie.grid(True, alpha=0.3)
+            row += 1
 
-        for c, name in enumerate(CLASS_NAMES):
-            ax = fig.add_subplot(gs[5, c], sharex=ax1)
-            _plot_cols(ax, df, epochs, [
-                (f"precision_{name}", "P"),
-                (f"recall_{name}", "R"),
-                (f"f1_{name}", "F1"),
+        if has_carb:
+            ax_carb = fig.add_subplot(gs[row], sharex=ax1)
+            _plot_cols(ax_carb, df, epochs, [
+                ("carb_auc", "AUC"),
+                ("carb_precision", "P"),
+                ("carb_recall", "R"),
+                ("carb_f1", "F1"),
             ])
-            ax.set_xlabel("Epoch")
-            ax.set_title(f"Val: {name}")
-            ax.set_ylim(0, 1.05)
-            ax.grid(True, alpha=0.3)
+            ax_carb.set_title("CaRB benchmark (dev)")
+            ax_carb.set_ylim(0, 1.05)
+            ax_carb.grid(True, alpha=0.3)
+            row += 1
+
+        axes = fig.get_axes()
+        if axes:
+            axes[-1].set_xlabel("Epoch")
 
         plt.tight_layout()
         plt.savefig(plot_path, dpi=150, bbox_inches="tight")
