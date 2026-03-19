@@ -17,7 +17,6 @@ from tqdm import tqdm
 
 from diffopenie.data import SEQ_STR2INT
 from diffopenie.models.discrete.discrete_model import DiscreteModel
-from diffopenie.utils import hprint
 from diffopenie.training.logger import TrainingLogger
 from diffopenie.training.metrics import (
     EpochResult,
@@ -28,8 +27,11 @@ from diffopenie.training.metrics import (
     TripletMetrics,
     ValidationResult,
 )
+from diffopenie.utils import hprint
 
-DEFAULT_CLASS_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
+# DEFAULT_CLASS_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
+DEFAULT_CLASS_WEIGHTS = [0.1, 0.3, 0.3, 0.3]
+
 IGNORE_INDEX = -100
 
 
@@ -77,7 +79,7 @@ class Trainer:
 
         weights = list(class_weights or DEFAULT_CLASS_WEIGHTS)
         if self.model.scheduler.kernel == "mask_absorbing":
-            weights.append(1e10)
+            weights.append(float("inf"))
 
         self._loss_fn = nn.CrossEntropyLoss(
             reduction="none",
@@ -92,10 +94,13 @@ class Trainer:
         denoiser_params = [p for p in model.parameters() if id(p) not in encoder_ids]
         enc_lr = encoder_lr if encoder_lr is not None else learning_rate
 
-        self.optimizer = torch.optim.AdamW([
-            {"params": encoder_params, "lr": enc_lr},
-            {"params": denoiser_params, "lr": learning_rate},
-        ], weight_decay=weight_decay)
+        self.optimizer = torch.optim.AdamW(
+            [
+                {"params": encoder_params, "lr": enc_lr},
+                {"params": denoiser_params, "lr": learning_rate},
+            ],
+            weight_decay=weight_decay,
+        )
 
         # LR scheduler: linear warmup then cosine decay
         self.warmup_steps = warmup_steps
@@ -133,7 +138,9 @@ class Trainer:
     def _warmup_cosine_lambda(self, step: int) -> float:
         if step < self.warmup_steps:
             return step / max(self.warmup_steps, 1)
-        progress = (step - self.warmup_steps) / max(self.total_steps - self.warmup_steps, 1)
+        progress = (step - self.warmup_steps) / max(
+            self.total_steps - self.warmup_steps, 1
+        )
         return 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
 
     def _to_device(self, batch: dict[str, torch.Tensor]):
@@ -176,13 +183,13 @@ class Trainer:
         if self.background_drop_prob > 0 and self.model.training:
             bg_and_active = (labels == SEQ_STR2INT["B"]) & (target != IGNORE_INDEX)
             drop = bg_and_active & (
-                torch.rand_like(target, dtype=torch.float32)
-                < self.background_drop_prob
+                torch.rand_like(target, dtype=torch.float32) < self.background_drop_prob
             )
             target[drop] = IGNORE_INDEX
 
         per_token = self._loss_fn(
-            logits.reshape(-1, logits.size(-1)), target.reshape(-1),
+            logits.reshape(-1, logits.size(-1)),
+            target.reshape(-1),
         ).reshape(B, L)
         valid = (target != IGNORE_INDEX).float()
         per_sample_loss = (per_token * valid).sum(1) / valid.sum(1).clamp(min=1)
@@ -212,7 +219,8 @@ class Trainer:
             result = self.compute_loss(batch)
             result.loss.backward()
             torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(), self.max_grad_norm,
+                self.model.parameters(),
+                self.max_grad_norm,
             )
             self.optimizer.step()
             self._update_ema()
@@ -243,9 +251,7 @@ class Trainer:
         return total / max(n, 1)
 
     @torch.no_grad()
-    def validate_per_t_loss(
-        self, dataloader: DataLoader
-    ) -> torch.Tensor | None:
+    def validate_per_t_loss(self, dataloader: DataLoader) -> torch.Tensor | None:
         """Average loss per timestep on the validation set. Returns [T] or None if empty."""
         self.model.eval()
         per_t = PerTimestepLoss(self.model.scheduler.num_steps).to(self.device)
@@ -274,9 +280,9 @@ class Trainer:
             else None
         )
         per_t_metrics = (
-            PerTimestepTripletMetrics(
-                num_steps, mask_state_id=mask_state_id
-            ).to(self.device)
+            PerTimestepTripletMetrics(num_steps, mask_state_id=mask_state_id).to(
+                self.device
+            )
             if compute_per_timestep_metrics
             else None
         )
@@ -319,6 +325,8 @@ class Trainer:
         """
         from diffopenie.evaluation.carb_metrics import (
             Extraction,
+        )
+        from diffopenie.evaluation.carb_metrics import (
             evaluate as carb_evaluate,
         )
 
@@ -368,8 +376,10 @@ class Trainer:
         )
 
         log_resolved = (
-            Path(log_path) if log_path
-            else Path(save_path) / "train_log.csv" if save_path
+            Path(log_path)
+            if log_path
+            else Path(save_path) / "train_log.csv"
+            if save_path
             else None
         )
         logger = TrainingLogger(log_resolved)
@@ -381,19 +391,14 @@ class Trainer:
         if val_carb and carb_gold_path and carb_sentences_path:
             carb_gold = load_gold_file(carb_gold_path)
             with open(carb_sentences_path) as f:
-                carb_sentences = [
-                    line.strip() for line in f if line.strip()
-                ]
+                carb_sentences = [line.strip() for line in f if line.strip()]
             print(
                 f"CaRB val: {len(carb_sentences)} sentences, "
                 f"{sum(len(v) for v in carb_gold.values())} "
                 f"gold extractions"
             )
 
-        params = sum(
-            p.numel() for p in self.model.parameters()
-            if p.requires_grad
-        )
+        params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         print(
             f"Training {num_epochs} epochs on {self.device} "
             f"| {params:,} trainable params"
@@ -404,12 +409,10 @@ class Trainer:
 
             with self.ema_scope():
                 val_loss = (
-                    self.validate_loss(val_dataloader)
-                    if val_dataloader else None
+                    self.validate_loss(val_dataloader) if val_dataloader else None
                 )
                 per_t_val_loss = (
-                    self.validate_per_t_loss(val_dataloader)
-                    if val_dataloader else None
+                    self.validate_per_t_loss(val_dataloader) if val_dataloader else None
                 )
 
                 do_full = epoch % val_full_interval == 0
@@ -433,15 +436,14 @@ class Trainer:
                             compute_per_timestep_metrics=do_full,
                         )
                         train_carb = train_val_result.carb
-                        train_per_t_carb = (
-                            train_val_result.per_t_carb
-                        )
+                        train_per_t_carb = train_val_result.per_t_carb
 
                 # -- CaRB benchmark validation --
                 carb_result: CarbResult | None = None
                 if carb_gold and carb_sentences and do_full:
                     carb_result = self.validate_carb(
-                        carb_sentences, carb_gold,
+                        carb_sentences,
+                        carb_gold,
                     )
 
             # Best model: prefer CaRB F1, fall back to LSOIE F1
@@ -451,17 +453,15 @@ class Trainer:
                 current_f1 = carb_result.f1
             elif carb:
                 current_f1 = carb.f1
-            if (
-                current_f1 is not None
-                and save_path
-                and current_f1 > best_f1
-            ):
+            if current_f1 is not None and save_path and current_f1 > best_f1:
                 best_f1 = current_f1
                 self.save_checkpoint(save_path, epoch, suffix="best")
                 new_best = best_f1
 
             logger.log_epoch(
-                epoch, epoch_result.loss, val_loss,
+                epoch,
+                epoch_result.loss,
+                val_loss,
                 epoch_result.direct_metrics,
                 carb_metrics=carb,
                 train_carb_metrics=train_carb,
@@ -473,7 +473,10 @@ class Trainer:
                 carb_result=carb_result,
             )
             logger.print_epoch(
-                epoch, num_epochs, epoch_result.loss, val_loss,
+                epoch,
+                num_epochs,
+                epoch_result.loss,
+                val_loss,
                 epoch_result.direct_metrics,
                 carb_metrics=carb,
                 train_carb_metrics=train_carb,
@@ -487,11 +490,15 @@ class Trainer:
     # -- Checkpointing ----------------------------------------------------
 
     def save_checkpoint(
-        self, path: str, epoch: int, suffix: str | None = None,
+        self,
+        path: str,
+        epoch: int,
+        suffix: str | None = None,
     ):
         os.makedirs(path, exist_ok=True)
         fname = (
-            f"{path}/checkpoint_{suffix}.pt" if suffix
+            f"{path}/checkpoint_{suffix}.pt"
+            if suffix
             else f"{path}/checkpoint_epoch_{epoch}.pt"
         )
         # For "best" checkpoint, save EMA weights as model_state_dict so
