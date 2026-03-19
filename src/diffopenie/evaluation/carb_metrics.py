@@ -216,6 +216,14 @@ class CarbResult:
     recall: float
     f1: float
 
+    def to_dict(self, prefix: str = "") -> dict[str, float]:
+        return {
+            f"{prefix}carb_auc": self.auc,
+            f"{prefix}carb_precision": self.precision,
+            f"{prefix}carb_recall": self.recall,
+            f"{prefix}carb_f1": self.f1,
+        }
+
 
 def evaluate(
     gold: ExtractionDict,

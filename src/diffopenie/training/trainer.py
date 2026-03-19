@@ -303,6 +303,47 @@ class Trainer:
         per_t_carb = per_t_metrics.compute() if per_t_metrics is not None else None
         return ValidationResult(carb=carb, per_t_carb=per_t_carb)
 
+    @torch.no_grad()
+    def validate_carb(
+        self,
+        sentences: list[str],
+        gold: dict[str, list],
+    ):
+        """Run CaRB evaluation using model.get_carb_prediction.
+
+        Uses model.carb_k and model.carb_topk for sampling parameters.
+
+        Args:
+            sentences: raw sentences (one per line from CaRB dev/test.txt)
+            gold: gold extractions dict (from load_gold_file on CaRB gold/*.tsv)
+        """
+        from diffopenie.evaluation.carb_metrics import (
+            Extraction,
+            evaluate as carb_evaluate,
+        )
+
+        self.model.eval()
+        predicted: dict[str, list] = {}
+
+        for sent in tqdm(sentences, desc="CaRB val", leave=False):
+            words = sent.split()
+            triplets, probs = self.model.get_carb_prediction(
+                words, k=self.model.carb_k, topk=self.model.carb_topk
+            )
+            exs = []
+            for (sub_span, obj_span, pred_span), prob in zip(triplets, probs):
+                subj = " ".join(words[sub_span[0] : sub_span[1] + 1])
+                obj_ = " ".join(words[obj_span[0] : obj_span[1] + 1])
+                pred = " ".join(words[pred_span[0] : pred_span[1] + 1])
+                if subj and obj_ and pred:
+                    exs.append(
+                        Extraction(pred=pred, args=[subj, obj_], confidence=prob)
+                    )
+            if exs:
+                predicted[sent] = exs
+
+        return carb_evaluate(gold, predicted)
+
     # -- Main training loop -----------------------------------------------
 
     def train(
@@ -316,7 +357,14 @@ class Trainer:
         val_metrics_on_train: bool = False,
         log_path: str | None = None,
         train_val_batches: int | None = None,
+        carb_gold_path: str | None = None,
+        carb_sentences_path: str | None = None,
     ):
+        from diffopenie.evaluation.carb_metrics import (
+            CarbResult,
+            load_gold_file,
+        )
+
         log_resolved = (
             Path(log_path) if log_path
             else Path(save_path) / "train_log.csv" if save_path
@@ -324,6 +372,18 @@ class Trainer:
         )
         logger = TrainingLogger(log_resolved)
         best_f1 = -1.0
+
+        # Load CaRB gold data once if paths provided
+        carb_gold: ExtractionDict | None = None
+        carb_sentences: list[str] | None = None
+        if carb_gold_path and carb_sentences_path:
+            carb_gold = load_gold_file(carb_gold_path)
+            with open(carb_sentences_path) as f:
+                carb_sentences = [line.strip() for line in f if line.strip()]
+            print(
+                f"CaRB val: {len(carb_sentences)} sentences, "
+                f"{sum(len(v) for v in carb_gold.values())} gold extractions"
+            )
 
         params = sum(
             p.numel() for p in self.model.parameters() if p.requires_grad
@@ -347,48 +407,62 @@ class Trainer:
                 )
 
                 do_full = epoch % val_full_interval == 0
-                val_result = (
-                    self.validate(
-                        val_dataloader,
-                        compute_per_timestep_metrics=do_full,
+
+                # -- Old token-overlap validation (commented out) --
+                # val_result = (
+                #     self.validate(
+                #         val_dataloader,
+                #         compute_per_timestep_metrics=do_full,
+                #     )
+                #     if val_dataloader and do_full
+                #     else None
+                # )
+                # carb = val_result.carb if val_result else None
+                # per_t_carb = val_result.per_t_carb if val_result else None
+                # train_val_result = (
+                #     self.validate(
+                #         train_dataloader,
+                #         max_batches=train_val_batches,
+                #         compute_per_timestep_metrics=do_full,
+                #     )
+                #     if val_metrics_on_train and do_full
+                #     else None
+                # )
+                # train_carb = train_val_result.carb if train_val_result else None
+                # train_per_t_carb = (
+                #     train_val_result.per_t_carb if train_val_result else None
+                # )
+
+                # -- CaRB benchmark validation --
+                carb_result: CarbResult | None = None
+                if carb_gold and carb_sentences and do_full:
+                    carb_result = self.validate_carb(
+                        carb_sentences, carb_gold,
                     )
-                    if val_dataloader and do_full
-                    else None
-                )
-                carb = val_result.carb if val_result else None
-                per_t_carb = val_result.per_t_carb if val_result else None
-                train_val_result = (
-                    self.validate(
-                        train_dataloader,
-                        max_batches=train_val_batches,
-                        compute_per_timestep_metrics=do_full,
-                    )
-                    if val_metrics_on_train and do_full
-                    else None
-                )
-                train_carb = train_val_result.carb if train_val_result else None
-                train_per_t_carb = (
-                    train_val_result.per_t_carb if train_val_result else None
-                )
 
             new_best = None
-            if carb and save_path and carb.f1 > best_f1:
-                best_f1 = carb.f1
+            if carb_result and save_path and carb_result.f1 > best_f1:
+                best_f1 = carb_result.f1
                 self.save_checkpoint(save_path, epoch, suffix="best")
                 new_best = best_f1
 
             logger.log_epoch(
                 epoch, epoch_result.loss, val_loss,
-                epoch_result.direct_metrics, carb, train_carb,
-                epoch_result.per_timestep_loss,
+                epoch_result.direct_metrics,
+                carb_metrics=None,
+                train_carb_metrics=None,
+                per_t_loss=epoch_result.per_timestep_loss,
                 per_t_val_loss=per_t_val_loss,
                 t_sampled_counts=epoch_result.t_sampled_counts,
-                per_t_carb_metrics=per_t_carb,
-                train_per_t_carb_metrics=train_per_t_carb,
+                carb_result=carb_result,
             )
             logger.print_epoch(
                 epoch, num_epochs, epoch_result.loss, val_loss,
-                epoch_result.direct_metrics, carb, train_carb, new_best,
+                epoch_result.direct_metrics,
+                carb_metrics=None,
+                train_carb_metrics=None,
+                new_best=new_best,
+                carb_result=carb_result,
             )
 
             if save_path and epoch % save_interval == 0:
@@ -451,6 +525,10 @@ class TrainerConfig(BaseModel):
     label_smoothing: float = 0.0
     warmup_steps: int = 0
     ema_decay: float = 0.0  # 0 = disabled; typical values: 0.999, 0.9999
+
+    # CaRB benchmark validation
+    carb_gold_path: str | None = None  # path to CaRB gold/*.tsv
+    carb_sentences_path: str | None = None  # path to CaRB dev.txt/test.txt
 
     @model_validator(mode="after")
     def _auto_device(self):

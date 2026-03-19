@@ -13,6 +13,8 @@ trainer:
   label_smoothing: 0.0
   warmup_steps: 0
   background_drop_prob: 0.0
+  carb_gold_path: "../CaRB/data/gold/dev.tsv"
+  carb_sentences_path: "../CaRB/data/dev.txt"
 
 model:
   encoder:
@@ -55,6 +57,8 @@ model:
   use_remasking: false
   remask_threshold_low: 0.3
   remask_threshold_high: 0.9
+  carb_k: 10
+  carb_topk: 3
 
 data:
   train_dataset:

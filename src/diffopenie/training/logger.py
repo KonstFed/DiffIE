@@ -38,6 +38,7 @@ class TrainingLogger:
         t_sampled_counts: torch.Tensor | None = None,
         per_t_carb_metrics: PerTimestepMetricsResult | None = None,
         train_per_t_carb_metrics: PerTimestepMetricsResult | None = None,
+        carb_result=None,
     ):
         row: dict = {"epoch": epoch, "train_loss": train_loss}
         if val_loss is not None:
@@ -48,6 +49,8 @@ class TrainingLogger:
             row.update(carb_metrics.to_dict(""))
         if train_carb_metrics is not None:
             row.update(train_carb_metrics.to_dict("train_"))
+        if carb_result is not None:
+            row.update(carb_result.to_dict(""))
         self._rows.append(row)
 
         if self.log_path is None:
@@ -72,6 +75,8 @@ class TrainingLogger:
         carb_metrics: MetricsResult | None,
         train_carb_metrics: MetricsResult | None,
         best_f1: float | None = None,
+        new_best: float | None = None,
+        carb_result=None,
     ):
         C, B, D, M, G, R = (
             "\033[36m", "\033[1m", "\033[2m", "\033[35m", "\033[32m", "\033[0m",
@@ -101,8 +106,18 @@ class TrainingLogger:
                 f"R={carb_metrics.recall:.3f}  "
                 f"F1={carb_metrics.f1:.3f}{R}"
             )
-        if best_f1 is not None:
-            print(f"  {G}New best F1: {best_f1:.4f}{R}")
+        if carb_result:
+            print(
+                f"  {B}{M}CaRB     "
+                f"AUC={carb_result.auc:.3f}  "
+                f"P={carb_result.precision:.3f}  "
+                f"R={carb_result.recall:.3f}  "
+                f"F1={carb_result.f1:.3f}{R}"
+            )
+        # Support both old 'best_f1' and new 'new_best' parameter names
+        _best = new_best if new_best is not None else best_f1
+        if _best is not None:
+            print(f"  {G}New best F1: {_best:.4f}{R}")
 
     # -- Plotting ---------------------------------------------------------
 

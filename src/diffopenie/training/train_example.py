@@ -153,6 +153,8 @@ def main():
         val_metrics_on_train=config.val_metrics_on_train,
         log_path=log_path,
         train_val_batches=config.train_val_batches,
+        carb_gold_path=config.trainer.carb_gold_path,
+        carb_sentences_path=config.trainer.carb_sentences_path,
     )
     print("Training completed!")
 
