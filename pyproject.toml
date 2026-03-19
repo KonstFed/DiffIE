@@ -6,7 +6,7 @@ authors = [
     {name = "KonstFed",email = "konstfed12@gmail.ru"}
 ]
 readme = "README.md"
-requires-python = "<3.15,>=3.12"
+requires-python = "<3.13,>=3.12"
 dependencies = [
     "zenodo-get (>=2.0.0,<3.0.0)",
     "pandas (>=2.3.3,<3.0.0)",
@@ -19,6 +19,9 @@ dependencies = [
     "plotly>=6.4.0",
     "nbformat>=4.2.0",
     "pytest>=9.0.2",
+    "scikit-learn>=1.0.0",
+    "pydantic>=2.12.5",
+    "torchmetrics>=1.0.0",
 ]
 
 [tool.poetry]
@@ -33,3 +36,17 @@ build-backend = "poetry.core.masonry.api"
 dev = [
     "ruff>=0.14.5",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F"]
+ignore = [
+  "E203",  # конфликтует с форматтерами
+  "E266",  # комментарии
+]
+
+[tool.ruff.format]
+quote-style = "double"

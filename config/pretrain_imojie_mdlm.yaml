@@ -1,0 +1,94 @@
+# MDLM (Masked Diffusion Language Model) training config.
+# Same data/model/trainer as D3PM but uses MDLM concrete-score reverse sampling
+# instead of D3PM transition matrices. Mask-absorbing only.
+# alpha_schedule controls survival probability α(t): cosine | linear | log_linear | mi
+
+trainer:
+  type: "discrete_trainer"
+  device: null
+  learning_rate: 2e-4
+  encoder_lr: 5e-5
+  weight_decay: 0.01
+  label_smoothing: 0.0
+  warmup_steps: 500
+  background_drop_prob: 0.0
+
+model:
+  encoder:
+    model_name: "bert-base-uncased"
+    freeze: false
+    add_special_tokens: false
+  scheduler:
+    type: mdlm
+    num_states: 5
+    num_steps: 16
+    mask_state_id: 4
+    device: "cpu"
+    dtype: "float32"
+    alpha_schedule:
+      type: cosine
+      s: 0.008
+    # alpha_schedule:
+    #   type: log_linear     # standard MDLM schedule: α(t) = eps^(t/T)
+    #   eps: 1e-4
+    # alpha_schedule:
+    #   type: linear
+    #   eps: 1e-4
+    # alpha_schedule:
+    #   type: mi
+    #   s_T: 0.05
+    #   mode: cosine
+  denoiser:
+    num_states: 5
+    model_dim: 512
+    ctx_dim: 768
+    num_layers: 2
+    num_heads: 8
+    dropout: 0.1
+    fuse: "concat"
+    time_embed: "learnable"
+    num_timesteps: 16
+  temperature: 1.0
+  topk: null
+  argmax: false
+  use_remasking: false
+  remask_threshold_low: 0.3
+  remask_threshold_high: 0.9
+
+data:
+  train_dataset:
+    type: "cached"
+    datasets:
+      - type: "imojie"
+        path: "dataset/data/train/4cr_qpbo_extractions.tsv"
+        tokenizer_name: "bert-base-uncased"
+        min_success_pct: 100.0
+      # - type: "sequence"
+      #   split: "train"
+      #   tokenizer_name: "bert-base-uncased"
+      #   filter_spans: true
+      #   drop_duplicate_sentences: true
+    encoder: null
+    batch_size: 32
+  val_dataset:
+    type: "cached"
+    datasets:
+      - type: "sequence"
+        split: ["validation", "test"]
+        tokenizer_name: "bert-base-uncased"
+        filter_spans: true
+        drop_duplicate_sentences: false
+    encoder: null
+    batch_size: 32
+  batch_size: 64
+  num_workers: 4
+  pad_token_id: 0
+  pad_label_idx: 4
+
+num_epochs: 2000
+log_interval: 100
+save_path: checkpoints_pretrain_imojie_mdlm
+save_interval: 3
+val_full_interval: 3
+val_metrics_on_train: true
+train_val_batches: 10

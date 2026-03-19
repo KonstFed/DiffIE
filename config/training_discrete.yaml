@@ -1,0 +1,120 @@
+# Discrete D3PM training with mask_absorbing kernel (x_T = MASK everywhere).
+# Uses sequence dataset: token_ids, attention_mask, label_indices (0=O, 1=subj, 2=obj, 3=pred).
+# num_states=5 with mask_state_id=4 for padding/MASK.
+# scheduler.beta_schedule: subconfig with type (cosine | linear | log_linear | mi) and type-specific params.
+
+trainer:
+  type: "discrete_trainer"
+  device: null
+  learning_rate: 5e-4
+  encoder_lr: 2e-5
+  weight_decay: 0.01
+  label_smoothing: 0.1
+  warmup_steps: 500
+  # Ignore class 0 (background) in loss with this probability to balance class inequality (0 = off).
+  background_drop_prob: 0.0
+
+model:
+  encoder:
+    model_name: "bert-base-uncased"
+    freeze: false # set true to freeze BERT; false to fine-tune alongside the denoiser
+    add_special_tokens: true
+  # scheduler type: "d3pm" (transition matrices) or "mdlm" (concrete score, mask-absorbing only)
+  scheduler:
+    type: d3pm
+    num_states: 5 # O, subject, object, predicate, # make 5 for MASK
+    num_steps: 16
+    kernel: "mask_absorbing"
+    mask_state_id: 4 # only for mask
+    device: "cpu" # overridden by trainer device at runtime
+    dtype: "float32"
+    beta_schedule:
+      type: cosine
+      s: 0.008
+    # beta_schedule:
+    #   type: mi
+    #   mode: cosine
+    #   s_T: 0.05      # ~90% masked at t=T
+    #   beta_min: 1e-8
+    #   beta_max: 0.2
+    # beta_schedule:
+    #   type: log_linear
+    #   beta_start: 1e-5
+    #   beta_end: 0.2
+    # beta_schedule:
+    #   type: linear
+    #   beta_start: 1e-4
+    #   beta_end: 0.07
+  # --- MDLM alternative (uncomment to switch) ---
+  # scheduler:
+  #   type: mdlm
+  #   num_states: 5
+  #   num_steps: 128
+  #   mask_state_id: 4
+  #   device: "cpu"
+  #   dtype: "float32"
+  #   alpha_schedule:
+  #     type: cosine        # cosine | linear | log_linear | mi
+  #     s: 0.008
+  #   # alpha_schedule:
+  #   #   type: log_linear  # standard MDLM schedule
+  #   #   eps: 1e-4
+  #   # alpha_schedule:
+  #   #   type: mi
+  #   #   s_T: 0.05
+  #   #   mode: cosine
+  denoiser:
+    num_states: 5
+    model_dim: 512
+    ctx_dim: 768 # BERT hidden size
+    num_layers: 2
+    num_heads: 8
+    dropout: 0.1
+    fuse: "concat"
+    time_embed: "learnable"
+    num_timesteps: 16 # required when time_embed: "learnable"
+  temperature: 1.0
+  topk: null
+  argmax: false
+  use_remasking: false
+  remask_threshold_low: 0.3 # at t=1
+  remask_threshold_high: 0.9 # at t=T
+
+# Train: Imojie TSV + LSOIE train. Val: LSOIE validation + LSOIE test (each wrapped in CachedDataset).
+# When fine-tuning BERT (model.encoder.freeze: false), set encoder to null so embeddings
+# are computed by the model each step; do not pre-cache with a separate encoder.
+data:
+  train_dataset:
+    type: "cached"
+    datasets:
+      # - type: "imojie"
+      #   path: "dataset/data/train/4cr_qpbo_extractions.tsv"
+      #   tokenizer_name: "bert-base-uncased"
+      #   min_success_pct: 100.0
+      - type: "sequence"
+        split: "train"
+        tokenizer_name: "bert-base-uncased"
+        filter_spans: true
+    encoder: null # null when fine-tuning BERT (model computes embeddings each step)
+    batch_size: 32
+  val_dataset:
+    type: "cached"
+    datasets:
+      - type: "sequence"
+        split: ["validation", "test"]
+        tokenizer_name: "bert-base-uncased"
+        filter_spans: true
+    encoder: null
+    batch_size: 32
+  batch_size: 64
+  num_workers: 4
+  pad_token_id: 0
+  pad_label_idx: 4
+
+num_epochs: 2000
+log_interval: 100
+save_path: checkpoints_discrete
+save_interval: 3
+val_full_interval: 3
+val_metrics_on_train: true
+train_val_batches: 10

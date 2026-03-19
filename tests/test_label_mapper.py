@@ -1,12 +1,13 @@
 import torch
 
-from diffopenie.models.label_mapper import LabelMapper
+from diffopenie.models.sequence.sequence_model import EmbeddingLabelMapper
+
 
 def test_label_mapper():
     """simple test."""
     num_classes = 7
     hidden_size = 768
-    label_mapper = LabelMapper(num_classes, hidden_size)
+    label_mapper = EmbeddingLabelMapper(num_classes, hidden_size)
     labels = torch.randint(0, num_classes, (10,))
     embeddings = label_mapper(labels)
 

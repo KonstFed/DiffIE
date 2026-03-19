@@ -1,559 +1,474 @@
-"""Training loop for diffusion-based OpenIE model."""
+"""Discrete diffusion trainer (merged from BaseTrainer + DiscreteTrainer)."""
+
+import copy
+import math
+import os
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
 
 import torch
 import torch.nn as nn
+from pydantic import BaseModel, ConfigDict, model_validator
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
-from torch.optim import AdamW
-from typing import Dict, Optional
-from collections import defaultdict
-
 from tqdm import tqdm
 
-from diffopenie.models.diffusion.denoiser import DiffusionSLDenoiser
-from diffopenie.models.diffusion.scheduler import LinearScheduler
-from diffopenie.models.label_mapper import LabelMapper
-from diffopenie.models.encoder import BERTEncoder
+from diffopenie.data import SEQ_STR2INT
+from diffopenie.models.discrete.discrete_model import DiscreteModel
+from diffopenie.utils import hprint
+from diffopenie.training.logger import TrainingLogger
+from diffopenie.training.metrics import (
+    EpochResult,
+    MetricsResult,
+    PerTimestepLoss,
+    PerTimestepMetricsResult,
+    PerTimestepTripletMetrics,
+    TripletMetrics,
+    ValidationResult,
+)
+
+DEFAULT_CLASS_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
+IGNORE_INDEX = -100
 
 
-class DiffusionTrainer:
-    """
-    Trainer for diffusion-based sequence labeling model.
-    
-    Handles:
-    - Forward diffusion process (adding noise)
-    - Denoising model training
-    - Loss computation (MSE on x0 prediction)
-    """
+@dataclass
+class ForwardResult:
+    """Output of a single forward pass (noising + denoising)."""
+
+    loss: torch.Tensor
+    per_sample_loss: torch.Tensor  # [B]
+    predictions: torch.Tensor  # [B, L]
+    labels: torch.Tensor  # [B, L]
+    mask: torch.Tensor  # [B, L]
+    timesteps: torch.Tensor  # [B]
+
+
+class Trainer:
     def __init__(
         self,
-        denoiser: DiffusionSLDenoiser,
-        scheduler: LinearScheduler,
-        label_mapper: LabelMapper,
-        encoder: BERTEncoder,
+        model: DiscreteModel,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         learning_rate: float = 1e-4,
+        encoder_lr: float | None = None,
         weight_decay: float = 0.01,
+        max_grad_norm: float = 1.0,
+        class_weights: list[float] | None = None,
+        background_drop_prob: float = 0.8,
+        label_smoothing: float = 0.0,
+        warmup_steps: int = 0,
+        total_steps: int | None = None,
+        ema_decay: float = 0.0,
     ):
-        """
-        Args:
-            denoiser: Diffusion denoiser model
-            scheduler: Diffusion scheduler (handles noise schedule)
-            label_mapper: Maps label indices to embeddings
-            encoder: BERT encoder for token embeddings
-            device: Training device
-            learning_rate: Learning rate for optimizer
-            weight_decay: Weight decay for optimizer
-        """
-        self.denoiser = denoiser.to(device)
-        self.scheduler = scheduler.to(device)  # Scheduler is now nn.Module, so .to(device) moves all buffers
-        self.label_mapper = label_mapper.to(device)
-        self.encoder = encoder.to(device)
+        self.model = model.to(device)
+        self.model.scheduler.to(device)
         self.device = device
-        
-        # Setup optimizer
-        self.optimizer = AdamW(
-            self.denoiser.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay,
-        )
-        
-        # Optional learning rate scheduler (can be set via set_lr_scheduler)
-        self.lr_scheduler = None
-        
-        # Loss function
-        self.criterion = nn.MSELoss(reduction="mean")
-        
-        # Training state
-        self.current_epoch = 0
+        self.max_grad_norm = max_grad_norm
+        self.background_drop_prob = background_drop_prob
         self.global_step = 0
-    
-    def set_lr_scheduler(self, scheduler):
-        """Set learning rate scheduler."""
-        self.lr_scheduler = scheduler
-    
-    def train_step(
-        self,
-        batch: Dict[str, torch.Tensor],
-    ) -> Dict[str, float]:
-        """
-        Perform a single training step.
-        
-        Args:
-            batch: Dictionary containing:
-                - token_ids: [B, L] token IDs
-                - attention_mask: [B, L] attention mask
-                - label_indices: [B, L] label indices
-        
-        Returns:
-            Dictionary with loss and other metrics
-        """
-        self.denoiser.train()
-        self.encoder.train()
-        
-        # Move batch to device
-        token_ids = batch["token_ids"].to(self.device)  # [B, L]
-        attention_mask = batch["attention_mask"].to(self.device)  # [B, L]
-        label_indices = batch["label_indices"].to(self.device)  # [B, L]
-        
-        B, L = token_ids.shape
-        
-        # Get BERT token embeddings
-        token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
-        
-        # Convert label indices to embeddings (x_0)
-        x_0 = self.label_mapper(label_indices)  # [B, L, x_dim]
-        
-        # Sample random timesteps
-        t = torch.randint(
-            0,
-            self.scheduler.num_steps,
-            size=(B,),
-            device=self.device,
-            dtype=torch.long,
-        )  # [B]
-        
-        # Sample noise
-        noise = torch.randn_like(x_0)  # [B, L, x_dim]
-        
-        # Forward diffusion: add noise to x_0
-        x_t = self.scheduler.q_sample(x_0, t, noise)  # [B, L, x_dim]
-        
-        # Predict x_0 from x_t
-        x0_pred = self.denoiser(
-            x_t=x_t,
-            t=t,
-            token_embeddings=token_embeddings,
-            attn_mask=attention_mask.bool(),
-        )  # [B, L, x_dim]
-        
-        # Compute loss: MSE between predicted and true x_0
-        # Only compute loss on non-padding tokens
-        mask = attention_mask.unsqueeze(-1).expand_as(x_0)  # [B, L, x_dim]
-        loss = self.criterion(x0_pred * mask, x_0 * mask)
-        
-        # Backward pass
-        self.optimizer.zero_grad()
-        loss.backward()
-        
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(self.denoiser.parameters(), max_norm=1.0)
-        
-        self.optimizer.step()
-        
-        # Update learning rate scheduler if available
-        if self.lr_scheduler is not None:
-            self.lr_scheduler.step()
-        
-        self.global_step += 1
-        
-        return {
-            "loss": loss.item(),
-        }
-    
-    def train_epoch(
-        self,
-        dataloader: DataLoader,
-        epoch: int,
-        log_interval: int = 100,
-    ) -> Dict[str, float]:
-        """
-        Train for one epoch.
-        
-        Args:
-            dataloader: DataLoader for training data
-            epoch: Current epoch number
-            log_interval: Logging interval
-        
-        Returns:
-            Dictionary with average metrics
-        """
-        self.current_epoch = epoch
-        total_loss = 0.0
-        num_batches = 0
-        
-        progress_bar = tqdm(
-            dataloader,
-            desc=f"Epoch {epoch}",
-            leave=False,
+
+        # EMA shadow weights
+        self.ema_decay = ema_decay
+        if ema_decay > 0:
+            self._ema_state = copy.deepcopy(model.state_dict())
+        else:
+            self._ema_state = None
+
+        weights = list(class_weights or DEFAULT_CLASS_WEIGHTS)
+        if self.model.scheduler.kernel == "mask_absorbing":
+            weights.append(1e10)
+
+        self._loss_fn = nn.CrossEntropyLoss(
+            reduction="none",
+            ignore_index=IGNORE_INDEX,
+            weight=torch.tensor(weights, dtype=torch.float32, device=device),
+            label_smoothing=label_smoothing,
         )
-        
-        for batch_idx, batch in enumerate(progress_bar):
-            metrics = self.train_step(batch)
-            total_loss += metrics["loss"]
-            num_batches += 1
-            
-            # Update progress bar
-            progress_bar.set_postfix({"loss": metrics["loss"]})
-            
-            # Log periodically
-            if (batch_idx + 1) % log_interval == 0:
-                tqdm.write(
-                    f"Step {self.global_step}: loss={metrics['loss']:.4f}"
-                )
-        
-        avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-        
-        return {
-            "loss": avg_loss,
-        }
-    
-    def validate_step(
-        self,
-        batch: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Perform a single validation step (no gradient computation).
-        Uses the denoiser's inference method for step-by-step denoising.
-        
-        Args:
-            batch: Dictionary containing:
-                - token_ids: [B, L] token IDs
-                - attention_mask: [B, L] attention mask
-                - label_indices: [B, L] label indices
-        
-        Returns:
-            Dictionary with predictions and labels for metric calculation
-        """
-        self.scheduler.eval()
-        self.denoiser.eval()
-        self.encoder.eval()
 
-        
-        with torch.no_grad():
-            # Move batch to device
-            token_ids = batch["token_ids"].to(self.device)  # [B, L]
-            attention_mask = batch["attention_mask"].to(self.device)  # [B, L]
-            label_indices = batch["label_indices"].to(self.device)  # [B, L]
-            
-            # Get BERT token embeddings
-            token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
-            
-            # TODO: idea: make fixed noise for validation
+        # Separate parameter groups for encoder vs denoiser
+        encoder_params = list(model.encoder.parameters())
+        encoder_ids = {id(p) for p in encoder_params}
+        denoiser_params = [p for p in model.parameters() if id(p) not in encoder_ids]
+        enc_lr = encoder_lr if encoder_lr is not None else learning_rate
 
-            # Perform step-by-step inference (same as inference)
-            noise_shape = (token_ids.shape[0], token_ids.shape[1], self.label_mapper.embedding_dim)
-            x0_pred = self.scheduler.inference(
-                denoiser=self.denoiser,
-                shape=noise_shape,
-                condition=token_embeddings,
-            )  # [B, L, x_dim]
-            
-            # Convert predictions back to label indices
-            pred_indices = self.label_mapper.reverse(x0_pred)  # [B, L]
-            
-            return {
-                "predictions": pred_indices,
-                "labels": label_indices,
-                "attention_mask": attention_mask,
-            }
-    
-    def validate_loss_step(
-        self,
-        batch: Dict[str, torch.Tensor],
-    ) -> Dict[str, float]:
-        """
-        Perform a single validation step that only computes loss (no gradient computation).
-        Similar to train_step but without backward pass.
-        
-        Args:
-            batch: Dictionary containing:
-                - token_ids: [B, L] token IDs
-                - attention_mask: [B, L] attention mask
-                - label_indices: [B, L] label indices
-        
-        Returns:
-            Dictionary with loss value
-        """
-        self.denoiser.eval()
-        self.encoder.eval()
-        
-        with torch.no_grad():
-            # Move batch to device
-            token_ids = batch["token_ids"].to(self.device)  # [B, L]
-            attention_mask = batch["attention_mask"].to(self.device)  # [B, L]
-            label_indices = batch["label_indices"].to(self.device)  # [B, L]
-            
-            B, L = token_ids.shape
-            
-            # Get BERT token embeddings
-            token_embeddings = self.encoder(token_ids, attention_mask)  # [B, L, bert_dim]
-            
-            # Convert label indices to embeddings (x_0)
-            x_0 = self.label_mapper(label_indices)  # [B, L, x_dim]
-            
-            # Sample random timesteps
-            t = torch.randint(
-                0,
-                self.scheduler.num_steps,
-                size=(B,),
-                device=self.device,
-                dtype=torch.long,
-            )  # [B]
-            
-            # Sample noise
-            noise = torch.randn_like(x_0)  # [B, L, x_dim]
-            
-            # Forward diffusion: add noise to x_0
-            x_t = self.scheduler.q_sample(x_0, t, noise)  # [B, L, x_dim]
-            
-            # Predict x_0 from x_t
-            x0_pred = self.denoiser(
-                x_t=x_t,
-                t=t,
-                token_embeddings=token_embeddings,
-                attn_mask=attention_mask.bool(),
-            )  # [B, L, x_dim]
-            
-            # Compute loss: MSE between predicted and true x_0
-            # Only compute loss on non-padding tokens
-            mask = attention_mask.unsqueeze(-1).expand_as(x_0)  # [B, L, x_dim]
-            loss = self.criterion(x0_pred * mask, x_0 * mask)
-            
-            return {
-                "loss": loss.item(),
-            }
-    
-    def validate_loss(
-        self,
-        val_dataloader: DataLoader,
-    ) -> Dict[str, float]:
-        """
-        Compute validation loss over the entire validation dataset.
-        
-        Args:
-            val_dataloader: DataLoader for validation data
-        
-        Returns:
-            Dictionary with average validation loss
-        """
-        total_loss = 0.0
-        num_batches = 0
-        
-        progress_bar = tqdm(val_dataloader, desc="Computing validation loss", leave=False)
-        
-        for batch in progress_bar:
-            metrics = self.validate_loss_step(batch)
-            total_loss += metrics["loss"]
-            num_batches += 1
-            progress_bar.set_postfix({"loss": metrics["loss"]})
-        
-        avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-        
-        return {
-            "val_loss": avg_loss,
-        }
-    
-    def compute_metrics(
-        self,
-        predictions: torch.Tensor,  # [B, L]
-        labels: torch.Tensor,  # [B, L]
-        attention_mask: torch.Tensor,  # [B, L]
-        num_classes: int = 4,
-    ) -> Dict[str, float]:
-        """
-        Compute sequence labeling metrics.
-        
-        Args:
-            predictions: Predicted label indices [B, L]
-            labels: True label indices [B, L]
-            attention_mask: Attention mask (1 for real tokens, 0 for padding) [B, L]
-            num_classes: Number of label classes
-        
-        Returns:
-            Dictionary with accuracy, precision, recall, F1 (per class and macro-averaged)
-        """
-        # Flatten and mask out padding tokens
-        mask = attention_mask.bool()
-        pred_flat = predictions[mask].cpu()
-        label_flat = labels[mask].cpu()
-        
-        # Overall accuracy
-        correct = (pred_flat == label_flat).sum().item()
-        total = pred_flat.numel()
-        accuracy = correct / total if total > 0 else 0.0
-        
-        # Per-class metrics
-        class_metrics = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
-        
-        for class_idx in range(num_classes):
-            pred_class = (pred_flat == class_idx)
-            label_class = (label_flat == class_idx)
-            
-            tp = (pred_class & label_class).sum().item()
-            fp = (pred_class & ~label_class).sum().item()
-            fn = (~pred_class & label_class).sum().item()
-            
-            class_metrics[class_idx] = {
-                "tp": tp,
-                "fp": fp,
-                "fn": fn,
-            }
-        
-        # Calculate precision, recall, F1 per class
-        class_precision = {}
-        class_recall = {}
-        class_f1 = {}
-        
-        for class_idx in range(num_classes):
-            metrics = class_metrics[class_idx]
-            tp, fp, fn = metrics["tp"], metrics["fp"], metrics["fn"]
-            
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-            
-            class_precision[class_idx] = precision
-            class_recall[class_idx] = recall
-            class_f1[class_idx] = f1
-        
-        # Macro-averaged metrics
-        macro_precision = sum(class_precision.values()) / num_classes
-        macro_recall = sum(class_recall.values()) / num_classes
-        macro_f1 = sum(class_f1.values()) / num_classes
-        
-        # Weighted F1 (weighted by class frequency)
-        class_counts = torch.bincount(label_flat, minlength=num_classes).float()
-        class_weights = class_counts / class_counts.sum() if class_counts.sum() > 0 else torch.ones(num_classes) / num_classes
-        weighted_f1 = sum(class_f1[i] * class_weights[i].item() for i in range(num_classes))
-        
-        return {
-            "accuracy": accuracy,
-            "macro_precision": macro_precision,
-            "macro_recall": macro_recall,
-            "macro_f1": macro_f1,
-            "weighted_f1": weighted_f1,
-            "class_precision": class_precision,
-            "class_recall": class_recall,
-            "class_f1": class_f1,
-        }
-    
+        self.optimizer = torch.optim.AdamW([
+            {"params": encoder_params, "lr": enc_lr},
+            {"params": denoiser_params, "lr": learning_rate},
+        ], weight_decay=weight_decay)
+
+        # LR scheduler: linear warmup then cosine decay
+        self.warmup_steps = warmup_steps
+        self.total_steps = total_steps
+        if warmup_steps > 0 and total_steps is not None and total_steps > 0:
+            self.lr_scheduler = LambdaLR(
+                self.optimizer,
+                lr_lambda=self._warmup_cosine_lambda,
+            )
+        else:
+            self.lr_scheduler = None
+
+    # -- EMA helpers --------------------------------------------------------
+
+    def _update_ema(self):
+        if self._ema_state is None:
+            return
+        d = self.ema_decay
+        for k, v in self.model.state_dict().items():
+            self._ema_state[k].lerp_(v, 1.0 - d)
+
+    @contextmanager
+    def ema_scope(self):
+        """Temporarily swap EMA weights into the model for eval."""
+        if self._ema_state is None:
+            yield
+            return
+        live = copy.deepcopy(self.model.state_dict())
+        self.model.load_state_dict(self._ema_state, strict=False)
+        try:
+            yield
+        finally:
+            self.model.load_state_dict(live, strict=False)
+
+    def _warmup_cosine_lambda(self, step: int) -> float:
+        if step < self.warmup_steps:
+            return step / max(self.warmup_steps, 1)
+        progress = (step - self.warmup_steps) / max(self.total_steps - self.warmup_steps, 1)
+        return 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
+
+    def _to_device(self, batch: dict[str, torch.Tensor]):
+        return (
+            batch["token_ids"].to(self.device),
+            batch["attention_mask"].to(self.device),
+            batch["label_indices"].to(self.device),
+        )
+
+    # -- Loss computation (trainer-specific: masking, bg drop, per-t loss) -
+
+    def compute_loss(self, batch: dict[str, torch.Tensor]) -> ForwardResult:
+        """Noise labels, denoise, compute masked CE loss."""
+        token_ids, attention_mask, labels = self._to_device(batch)
+        B, L = token_ids.shape
+
+        # # DEBUG: convert token_ids to tokens (first sample only) and print S/O/R with colour
+        # tokenizer = self.model.encoder.tokenizer
+        # first_ids = token_ids[0].cpu().tolist()
+        # tokens = tokenizer.convert_ids_to_tokens(first_ids)
+        # print("[DEBUG] token_ids[0] -> tokens:", tokens)
+        # first_labels = labels[0].cpu().tolist()
+        # subject_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["S"]]
+        # object_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["O"]]
+        # relation_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["R"]]
+        # print("[DEBUG] subject/object/relation tokens:")
+        # hprint(tokens, subject_ind, object_ind, relation_ind, legend=True)
+
+        token_emb = self.model.encode_tokens(token_ids, attention_mask)
+        t = self.model.scheduler.sample_t(B)
+        x_t = self.model.noise(labels, t)
+        logits = self.model.denoiser(x_t, t, token_emb, attention_mask)
+        predictions = logits.argmax(dim=-1)
+
+        target = labels.clone()
+        target[attention_mask == 0] = IGNORE_INDEX
+        if self.model.scheduler.kernel == "mask_absorbing":
+            target[x_t != self.model.scheduler.mask_state_id] = IGNORE_INDEX
+
+        if self.background_drop_prob > 0 and self.model.training:
+            bg_and_active = (labels == SEQ_STR2INT["B"]) & (target != IGNORE_INDEX)
+            drop = bg_and_active & (
+                torch.rand_like(target, dtype=torch.float32)
+                < self.background_drop_prob
+            )
+            target[drop] = IGNORE_INDEX
+
+        per_token = self._loss_fn(
+            logits.reshape(-1, logits.size(-1)), target.reshape(-1),
+        ).reshape(B, L)
+        valid = (target != IGNORE_INDEX).float()
+        per_sample_loss = (per_token * valid).sum(1) / valid.sum(1).clamp(min=1)
+        loss = per_sample_loss.mean()
+
+        metric_mask = attention_mask.clone()
+        metric_mask[target == IGNORE_INDEX] = 0
+
+        return ForwardResult(
+            loss=loss,
+            per_sample_loss=per_sample_loss,
+            predictions=predictions,
+            labels=labels,
+            mask=metric_mask,
+            timesteps=t,
+        )
+
+    # -- Epoch-level methods ----------------------------------------------
+
+    def train_epoch(self, dataloader: DataLoader, epoch: int) -> EpochResult:
+        self.model.train()
+        metrics = TripletMetrics().to(self.device)
+        per_t = PerTimestepLoss(self.model.scheduler.num_steps).to(self.device)
+        total_loss, n = 0.0, 0
+
+        for batch in tqdm(dataloader, desc=f"Epoch {epoch}", leave=False):
+            result = self.compute_loss(batch)
+            result.loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(), self.max_grad_norm,
+            )
+            self.optimizer.step()
+            self._update_ema()
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
+            self.optimizer.zero_grad()
+            self.global_step += 1
+
+            total_loss += result.loss.item()
+            n += 1
+            metrics.update(result.predictions, result.labels, result.mask)
+            per_t.update(result.per_sample_loss, result.timesteps)
+
+        return EpochResult(
+            loss=total_loss / max(n, 1),
+            direct_metrics=metrics.compute(),
+            per_timestep_loss=per_t.compute(),
+            t_sampled_counts=per_t.get_counts(),
+        )
+
+    @torch.no_grad()
+    def validate_loss(self, dataloader: DataLoader) -> float:
+        self.model.eval()
+        total, n = 0.0, 0
+        for batch in tqdm(dataloader, desc="Val loss", leave=False):
+            total += self.compute_loss(batch).loss.item()
+            n += 1
+        return total / max(n, 1)
+
+    @torch.no_grad()
+    def validate_per_t_loss(
+        self, dataloader: DataLoader
+    ) -> torch.Tensor | None:
+        """Average loss per timestep on the validation set. Returns [T] or None if empty."""
+        self.model.eval()
+        per_t = PerTimestepLoss(self.model.scheduler.num_steps).to(self.device)
+        n = 0
+        for batch in tqdm(dataloader, desc="Val per-t loss", leave=False):
+            result = self.compute_loss(batch)
+            per_t.update(result.per_sample_loss, result.timesteps)
+            n += 1
+        if n == 0:
+            return None
+        return per_t.compute()
+
+    @torch.no_grad()
     def validate(
         self,
-        val_dataloader: DataLoader,
-        num_classes: int = 4,
-    ) -> Dict[str, float]:
-        """
-        Run full inference like validation.
-        
-        Args:
-            val_dataloader: DataLoader for validation data
-            num_classes: Number of label classes
-        
-        Returns:
-            Dictionary with validation metrics
-        """
-        all_predictions = []
-        all_labels = []
-        all_masks = []
-        
-        progress_bar = tqdm(val_dataloader, desc="Validating", leave=False)
-        
-        for batch in progress_bar:
-            results = self.validate_step(batch)
-            # flatten and make "one sequence"
-            all_predictions.append(results["predictions"].flatten())
-            all_labels.append(results["labels"].flatten())
-            all_masks.append(results["attention_mask"].flatten())
-        
-        # Concatenate all batches
-        predictions = torch.cat(all_predictions, dim=0)  # [N, L]
-        labels = torch.cat(all_labels, dim=0)  # [N, L]
-        attention_mask = torch.cat(all_masks, dim=0)  # [N, L]
-        
-        # Compute metrics
-        metrics = self.compute_metrics(predictions, labels, attention_mask, num_classes)
-        
-        return metrics
-    
+        dataloader: DataLoader,
+        max_batches: int | None = None,
+        compute_per_timestep_metrics: bool = False,
+    ) -> ValidationResult:
+        self.model.eval()
+        metrics = TripletMetrics().to(self.device)
+        num_steps = self.model.scheduler.num_steps
+        mask_state_id = (
+            self.model.scheduler.mask_state_id
+            if getattr(self.model.scheduler, "kernel", None) == "mask_absorbing"
+            else None
+        )
+        per_t_metrics = (
+            PerTimestepTripletMetrics(
+                num_steps, mask_state_id=mask_state_id
+            ).to(self.device)
+            if compute_per_timestep_metrics
+            else None
+        )
+        for i, batch in enumerate(
+            tqdm(dataloader, desc="Validating", leave=False),
+        ):
+            if max_batches is not None and i >= max_batches:
+                break
+            token_ids, attention_mask, labels = self._to_device(batch)
+            token_emb = self.model.encode_tokens(token_ids, attention_mask)
+            out = self.model.generate(
+                batch_size=token_ids.shape[0],
+                token_embeddings=token_emb,
+                attention_mask=attention_mask,
+                return_intermediate=compute_per_timestep_metrics,
+            )
+            if compute_per_timestep_metrics:
+                preds, intermediates = out
+                metrics.update(preds, labels, attention_mask)
+                per_t_metrics.update(intermediates, labels, attention_mask)
+            else:
+                metrics.update(out, labels, attention_mask)
+        carb = metrics.compute()
+        per_t_carb = per_t_metrics.compute() if per_t_metrics is not None else None
+        return ValidationResult(carb=carb, per_t_carb=per_t_carb)
+
+    # -- Main training loop -----------------------------------------------
+
     def train(
         self,
         train_dataloader: DataLoader,
         num_epochs: int = 11,
-        log_interval: int = 100,
-        save_path: Optional[str] = None,
+        save_path: str | None = None,
         save_interval: int = 1,
-        val_dataloader: Optional[DataLoader] = None,
-        num_classes: int = 4,
+        val_dataloader: DataLoader | None = None,
         val_full_interval: int = 5,
+        val_metrics_on_train: bool = False,
+        log_path: str | None = None,
+        train_val_batches: int | None = None,
     ):
-        """
-        Main training loop.
-        
-        Args:
-            train_dataloader: DataLoader for training data
-            num_epochs: Number of training epochs
-            log_interval: Logging interval
-            save_path: Path to save checkpoints (optional)
-            save_interval: Save checkpoint every N epochs
-            val_dataloader: DataLoader for validation data (optional)
-            num_classes: Number of label classes for validation metrics
-            val_full_interval: Run full validation (with metrics) every N epochs. 
-                Validation loss is computed after every epoch.
-        """
-        print(f"Starting training for {num_epochs} epochs on {self.device}")
-        print(f"Model parameters: {sum(p.numel() for p in self.denoiser.parameters()):,}")
-        if val_dataloader is not None:
-            print(f"Validation enabled with {len(val_dataloader.dataset)} examples")
-            print(f"Validation loss computed every epoch, full validation every {val_full_interval} epochs")
-        
+        log_resolved = (
+            Path(log_path) if log_path
+            else Path(save_path) / "train_log.csv" if save_path
+            else None
+        )
+        logger = TrainingLogger(log_resolved)
+        best_f1 = -1.0
+
+        params = sum(
+            p.numel() for p in self.model.parameters() if p.requires_grad
+        )
+        print(
+            f"Training {num_epochs} epochs on {self.device} "
+            f"| {params:,} trainable params"
+        )
+
         for epoch in range(1, num_epochs + 1):
-            # Training
-            # train_metrics = self.train_epoch(train_dataloader, epoch, log_interval)
-            train_metrics = {"loss": 0.0}
-            
-            # Validation loss (computed after every epoch)
-            val_loss_metrics = None
-            if val_dataloader is not None:
-                val_loss_metrics = self.validate_loss(val_dataloader)
-            
-            # Full validation with metrics (computed every N epochs)
-            val_metrics = None
-            if val_dataloader is not None and epoch % val_full_interval == 0:
-                val_metrics = self.validate(val_dataloader, num_classes)
-            
-            # Print metrics
-            print(
-                f"Epoch {epoch}/{num_epochs} completed. "
-                f"Train loss: {train_metrics['loss']:.4f}"
-            )
-            if val_loss_metrics is not None:
-                print(f"  Val loss: {val_loss_metrics['val_loss']:.4f}")
-            
-            if val_metrics is not None:
-                print(
-                    f"  Val accuracy: {val_metrics['accuracy']:.4f}, "
-                    f"Val macro F1: {val_metrics['macro_f1']:.4f}, "
-                    f"Val weighted F1: {val_metrics['weighted_f1']:.4f}"
+            epoch_result = self.train_epoch(train_dataloader, epoch)
+
+            with self.ema_scope():
+                val_loss = (
+                    self.validate_loss(val_dataloader)
+                    if val_dataloader else None
                 )
-                # Print per-class F1 scores
-                print("  Per-class F1:", end=" ")
-                for class_idx in range(num_classes):
-                    class_name = ["O", "Subject", "Object", "Predicate"][class_idx] if class_idx < 4 else f"Class{class_idx}"
-                    print(f"{class_name}: {val_metrics['class_f1'][class_idx]:.4f}", end="  ")
-                print()
-            
-            # Save checkpoint
+                per_t_val_loss = (
+                    self.validate_per_t_loss(val_dataloader)
+                    if val_dataloader else None
+                )
+
+                do_full = epoch % val_full_interval == 0
+                val_result = (
+                    self.validate(
+                        val_dataloader,
+                        compute_per_timestep_metrics=do_full,
+                    )
+                    if val_dataloader and do_full
+                    else None
+                )
+                carb = val_result.carb if val_result else None
+                per_t_carb = val_result.per_t_carb if val_result else None
+                train_val_result = (
+                    self.validate(
+                        train_dataloader,
+                        max_batches=train_val_batches,
+                        compute_per_timestep_metrics=do_full,
+                    )
+                    if val_metrics_on_train and do_full
+                    else None
+                )
+                train_carb = train_val_result.carb if train_val_result else None
+                train_per_t_carb = (
+                    train_val_result.per_t_carb if train_val_result else None
+                )
+
+            new_best = None
+            if carb and save_path and carb.f1 > best_f1:
+                best_f1 = carb.f1
+                self.save_checkpoint(save_path, epoch, suffix="best")
+                new_best = best_f1
+
+            logger.log_epoch(
+                epoch, epoch_result.loss, val_loss,
+                epoch_result.direct_metrics, carb, train_carb,
+                epoch_result.per_timestep_loss,
+                per_t_val_loss=per_t_val_loss,
+                t_sampled_counts=epoch_result.t_sampled_counts,
+                per_t_carb_metrics=per_t_carb,
+                train_per_t_carb_metrics=train_per_t_carb,
+            )
+            logger.print_epoch(
+                epoch, num_epochs, epoch_result.loss, val_loss,
+                epoch_result.direct_metrics, carb, train_carb, new_best,
+            )
+
             if save_path and epoch % save_interval == 0:
                 self.save_checkpoint(save_path, epoch)
-    
-    def save_checkpoint(self, path: str, epoch: int):
-        """Save training checkpoint."""
-        checkpoint = {
-            "epoch": epoch,
-            "global_step": self.global_step,
-            "denoiser_state_dict": self.denoiser.state_dict(),
-            "label_mapper_state_dict": self.label_mapper.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-        }
-        torch.save(checkpoint, f"{path}/checkpoint_epoch_{epoch}.pt")
-        print(f"Checkpoint saved to {path}/checkpoint_epoch_{epoch}.pt")
-    
+
+    # -- Checkpointing ----------------------------------------------------
+
+    def save_checkpoint(
+        self, path: str, epoch: int, suffix: str | None = None,
+    ):
+        os.makedirs(path, exist_ok=True)
+        fname = (
+            f"{path}/checkpoint_{suffix}.pt" if suffix
+            else f"{path}/checkpoint_epoch_{epoch}.pt"
+        )
+        # For "best" checkpoint, save EMA weights as model_state_dict so
+        # load_checkpoint (used in eval) gets the smoothed weights directly.
+        if suffix == "best" and self._ema_state is not None:
+            model_state = self._ema_state
+        else:
+            model_state = self.model.state_dict()
+
+        torch.save(
+            {
+                "epoch": epoch,
+                "global_step": self.global_step,
+                "model_state_dict": model_state,
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "ema_state_dict": self._ema_state,
+            },
+            fname,
+        )
+        print(f"Saved {fname}")
+
     def load_checkpoint(self, path: str):
-        """Load training checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
-        self.denoiser.load_state_dict(checkpoint["denoiser_state_dict"])
-        self.label_mapper.load_state_dict(checkpoint["label_mapper_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        self.current_epoch = checkpoint["epoch"]
-        self.global_step = checkpoint["global_step"]
-        print(f"Checkpoint loaded from {path}")
+        ckpt = torch.load(path, map_location=self.device)
+        state = ckpt.get("model_state_dict", ckpt)
+        self.model.load_state_dict(state, strict=False)
+        self.global_step = ckpt.get("global_step", 0)
+        if "optimizer_state_dict" in ckpt and ckpt["optimizer_state_dict"]:
+            self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        if "ema_state_dict" in ckpt and ckpt["ema_state_dict"] is not None:
+            self._ema_state = ckpt["ema_state_dict"]
+        print(f"Loaded {path}")
+
+
+# -- Config ---------------------------------------------------------------
+
+
+class TrainerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["discrete_trainer"] = "discrete_trainer"
+    device: str | None = None
+    learning_rate: float = 1e-4
+    encoder_lr: float | None = None
+    weight_decay: float = 0.01
+    max_grad_norm: float = 1.0
+    background_drop_prob: float = 0.8
+    label_smoothing: float = 0.0
+    warmup_steps: int = 0
+    ema_decay: float = 0.0  # 0 = disabled; typical values: 0.999, 0.9999
+
+    @model_validator(mode="after")
+    def _auto_device(self):
+        if self.device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        return self
+
+    def create(self, model: DiscreteModel, total_steps: int | None = None) -> Trainer:
+        return Trainer(
+            model=model,
+            device=self.device,
+            learning_rate=self.learning_rate,
+            encoder_lr=self.encoder_lr,
+            weight_decay=self.weight_decay,
+            max_grad_norm=self.max_grad_norm,
+            background_drop_prob=self.background_drop_prob,
+            label_smoothing=self.label_smoothing,
+            warmup_steps=self.warmup_steps,
+            total_steps=total_steps,
+            ema_decay=self.ema_decay,
+        )
