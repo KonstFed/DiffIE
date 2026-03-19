@@ -70,6 +70,8 @@ class TrainingConfig(BaseModel):
     val_metrics_on_train: bool = False
     train_val_batches: Optional[int] = None
     model_weights: Optional[str] = None  # path to checkpoint for weight init (pretrain→finetune)
+    val_lsoie: bool = True  # token-overlap validation on LSOIE val split
+    val_carb: bool = True  # CaRB benchmark validation (needs trainer.carb_*)
 
 
 def _collator_for(cfg: DatasetConfigUnion, data: DataConfig):
@@ -155,6 +157,8 @@ def main():
         train_val_batches=config.train_val_batches,
         carb_gold_path=config.trainer.carb_gold_path,
         carb_sentences_path=config.trainer.carb_sentences_path,
+        val_lsoie=config.val_lsoie,
+        val_carb=config.val_carb,
     )
     print("Training completed!")
 

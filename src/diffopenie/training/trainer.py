@@ -359,6 +359,8 @@ class Trainer:
         train_val_batches: int | None = None,
         carb_gold_path: str | None = None,
         carb_sentences_path: str | None = None,
+        val_lsoie: bool = True,
+        val_carb: bool = True,
     ):
         from diffopenie.evaluation.carb_metrics import (
             CarbResult,
@@ -373,20 +375,24 @@ class Trainer:
         logger = TrainingLogger(log_resolved)
         best_f1 = -1.0
 
-        # Load CaRB gold data once if paths provided
-        carb_gold: ExtractionDict | None = None
+        # Load CaRB gold data once if enabled and paths provided
+        carb_gold: dict | None = None
         carb_sentences: list[str] | None = None
-        if carb_gold_path and carb_sentences_path:
+        if val_carb and carb_gold_path and carb_sentences_path:
             carb_gold = load_gold_file(carb_gold_path)
             with open(carb_sentences_path) as f:
-                carb_sentences = [line.strip() for line in f if line.strip()]
+                carb_sentences = [
+                    line.strip() for line in f if line.strip()
+                ]
             print(
                 f"CaRB val: {len(carb_sentences)} sentences, "
-                f"{sum(len(v) for v in carb_gold.values())} gold extractions"
+                f"{sum(len(v) for v in carb_gold.values())} "
+                f"gold extractions"
             )
 
         params = sum(
-            p.numel() for p in self.model.parameters() if p.requires_grad
+            p.numel() for p in self.model.parameters()
+            if p.requires_grad
         )
         print(
             f"Training {num_epochs} epochs on {self.device} "
@@ -408,30 +414,28 @@ class Trainer:
 
                 do_full = epoch % val_full_interval == 0
 
-                # -- Old token-overlap validation (commented out) --
-                # val_result = (
-                #     self.validate(
-                #         val_dataloader,
-                #         compute_per_timestep_metrics=do_full,
-                #     )
-                #     if val_dataloader and do_full
-                #     else None
-                # )
-                # carb = val_result.carb if val_result else None
-                # per_t_carb = val_result.per_t_carb if val_result else None
-                # train_val_result = (
-                #     self.validate(
-                #         train_dataloader,
-                #         max_batches=train_val_batches,
-                #         compute_per_timestep_metrics=do_full,
-                #     )
-                #     if val_metrics_on_train and do_full
-                #     else None
-                # )
-                # train_carb = train_val_result.carb if train_val_result else None
-                # train_per_t_carb = (
-                #     train_val_result.per_t_carb if train_val_result else None
-                # )
+                # -- LSOIE token-overlap validation --
+                carb = None
+                per_t_carb = None
+                train_carb = None
+                train_per_t_carb = None
+                if val_lsoie and val_dataloader and do_full:
+                    val_result = self.validate(
+                        val_dataloader,
+                        compute_per_timestep_metrics=do_full,
+                    )
+                    carb = val_result.carb
+                    per_t_carb = val_result.per_t_carb
+                    if val_metrics_on_train:
+                        train_val_result = self.validate(
+                            train_dataloader,
+                            max_batches=train_val_batches,
+                            compute_per_timestep_metrics=do_full,
+                        )
+                        train_carb = train_val_result.carb
+                        train_per_t_carb = (
+                            train_val_result.per_t_carb
+                        )
 
                 # -- CaRB benchmark validation --
                 carb_result: CarbResult | None = None
@@ -440,27 +444,39 @@ class Trainer:
                         carb_sentences, carb_gold,
                     )
 
+            # Best model: prefer CaRB F1, fall back to LSOIE F1
             new_best = None
-            if carb_result and save_path and carb_result.f1 > best_f1:
-                best_f1 = carb_result.f1
+            current_f1 = None
+            if carb_result:
+                current_f1 = carb_result.f1
+            elif carb:
+                current_f1 = carb.f1
+            if (
+                current_f1 is not None
+                and save_path
+                and current_f1 > best_f1
+            ):
+                best_f1 = current_f1
                 self.save_checkpoint(save_path, epoch, suffix="best")
                 new_best = best_f1
 
             logger.log_epoch(
                 epoch, epoch_result.loss, val_loss,
                 epoch_result.direct_metrics,
-                carb_metrics=None,
-                train_carb_metrics=None,
+                carb_metrics=carb,
+                train_carb_metrics=train_carb,
                 per_t_loss=epoch_result.per_timestep_loss,
                 per_t_val_loss=per_t_val_loss,
                 t_sampled_counts=epoch_result.t_sampled_counts,
+                per_t_carb_metrics=per_t_carb,
+                train_per_t_carb_metrics=train_per_t_carb,
                 carb_result=carb_result,
             )
             logger.print_epoch(
                 epoch, num_epochs, epoch_result.loss, val_loss,
                 epoch_result.direct_metrics,
-                carb_metrics=None,
-                train_carb_metrics=None,
+                carb_metrics=carb,
+                train_carb_metrics=train_carb,
                 new_best=new_best,
                 carb_result=carb_result,
             )
