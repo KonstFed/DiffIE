@@ -6,11 +6,11 @@
 trainer:
   type: "discrete_trainer"
   device: null
-  learning_rate: 5e-5
+  learning_rate: 2e-4
   encoder_lr: 5e-5
   weight_decay: 0.01
   label_smoothing: 0.0
-  warmup_steps: 0
+  warmup_steps: 500
   background_drop_prob: 0.0
 
 model:
@@ -59,15 +59,15 @@ data:
   train_dataset:
     type: "cached"
     datasets:
-      # - type: "imojie"
-      #   path: "dataset/data/train/4cr_qpbo_extractions.tsv"
-      #   tokenizer_name: "bert-base-uncased"
-      #   min_success_pct: 100.0
-      - type: "sequence"
-        split: "train"
+      - type: "imojie"
+        path: "dataset/data/train/4cr_qpbo_extractions.tsv"
         tokenizer_name: "bert-base-uncased"
-        filter_spans: true
-        drop_duplicate_sentences: true
+        min_success_pct: 100.0
+      # - type: "sequence"
+      #   split: "train"
+      #   tokenizer_name: "bert-base-uncased"
+      #   filter_spans: true
+      #   drop_duplicate_sentences: true
     encoder: null
     batch_size: 32
   val_dataset:
@@ -87,9 +87,8 @@ data:
 
 num_epochs: 2000
 log_interval: 100
-save_path: checkpoints_mdlm
+save_path: checkpoints_pretrain_imojie_mdlm
 save_interval: 3
 val_full_interval: 3
 val_metrics_on_train: true
 train_val_batches: 10
-model_weights: "checkpoints_pretrain_imojie_mdlm/checkpoint_best.pt"

@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Annotated, Optional
 
+import torch
 from pydantic import BaseModel, ConfigDict, Field
 from torch.utils.data import DataLoader
 
@@ -68,6 +69,7 @@ class TrainingConfig(BaseModel):
     val_full_interval: int = 5
     val_metrics_on_train: bool = False
     train_val_batches: Optional[int] = None
+    model_weights: Optional[str] = None  # path to checkpoint for weight init (pretrain→finetune)
 
 
 def _collator_for(cfg: DatasetConfigUnion, data: DataConfig):
@@ -111,6 +113,16 @@ def create_training_components(
     steps_per_epoch = len(train_dl)
     total_steps = steps_per_epoch * config.num_epochs
     trainer = config.trainer.create(model=model, total_steps=total_steps)
+
+    if config.model_weights is not None:
+        ckpt = torch.load(config.model_weights, map_location=trainer.device)
+        state = ckpt.get("model_state_dict", ckpt)
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        if missing:
+            print(f"[model_weights] missing keys: {missing}")
+        if unexpected:
+            print(f"[model_weights] unexpected keys: {unexpected}")
+        print(f"[model_weights] loaded from {config.model_weights}")
 
     return model, trainer, train_dl, val_dl
 
