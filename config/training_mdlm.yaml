@@ -4,6 +4,7 @@
 # alpha_schedule controls survival probability α(t): cosine | linear | log_linear | mi
 
 trainer:
+  ema_decay: 0.9999
   type: "discrete_trainer"
   device: null
   learning_rate: 5e-5

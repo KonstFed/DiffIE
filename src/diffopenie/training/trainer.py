@@ -1,7 +1,9 @@
 """Discrete diffusion trainer (merged from BaseTrainer + DiscreteTrainer)."""
 
+import copy
 import math
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -57,6 +59,7 @@ class Trainer:
         label_smoothing: float = 0.0,
         warmup_steps: int = 0,
         total_steps: int | None = None,
+        ema_decay: float = 0.0,
     ):
         self.model = model.to(device)
         self.model.scheduler.to(device)
@@ -64,6 +67,13 @@ class Trainer:
         self.max_grad_norm = max_grad_norm
         self.background_drop_prob = background_drop_prob
         self.global_step = 0
+
+        # EMA shadow weights
+        self.ema_decay = ema_decay
+        if ema_decay > 0:
+            self._ema_state = copy.deepcopy(model.state_dict())
+        else:
+            self._ema_state = None
 
         weights = list(class_weights or DEFAULT_CLASS_WEIGHTS)
         if self.model.scheduler.kernel == "mask_absorbing":
@@ -97,6 +107,28 @@ class Trainer:
             )
         else:
             self.lr_scheduler = None
+
+    # -- EMA helpers --------------------------------------------------------
+
+    def _update_ema(self):
+        if self._ema_state is None:
+            return
+        d = self.ema_decay
+        for k, v in self.model.state_dict().items():
+            self._ema_state[k].lerp_(v, 1.0 - d)
+
+    @contextmanager
+    def ema_scope(self):
+        """Temporarily swap EMA weights into the model for eval."""
+        if self._ema_state is None:
+            yield
+            return
+        live = copy.deepcopy(self.model.state_dict())
+        self.model.load_state_dict(self._ema_state, strict=False)
+        try:
+            yield
+        finally:
+            self.model.load_state_dict(live, strict=False)
 
     def _warmup_cosine_lambda(self, step: int) -> float:
         if step < self.warmup_steps:
@@ -183,6 +215,7 @@ class Trainer:
                 self.model.parameters(), self.max_grad_norm,
             )
             self.optimizer.step()
+            self._update_ema()
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             self.optimizer.zero_grad()
@@ -303,39 +336,40 @@ class Trainer:
         for epoch in range(1, num_epochs + 1):
             epoch_result = self.train_epoch(train_dataloader, epoch)
 
-            val_loss = (
-                self.validate_loss(val_dataloader)
-                if val_dataloader else None
-            )
-            per_t_val_loss = (
-                self.validate_per_t_loss(val_dataloader)
-                if val_dataloader else None
-            )
+            with self.ema_scope():
+                val_loss = (
+                    self.validate_loss(val_dataloader)
+                    if val_dataloader else None
+                )
+                per_t_val_loss = (
+                    self.validate_per_t_loss(val_dataloader)
+                    if val_dataloader else None
+                )
 
-            do_full = epoch % val_full_interval == 0
-            val_result = (
-                self.validate(
-                    val_dataloader,
-                    compute_per_timestep_metrics=do_full,
+                do_full = epoch % val_full_interval == 0
+                val_result = (
+                    self.validate(
+                        val_dataloader,
+                        compute_per_timestep_metrics=do_full,
+                    )
+                    if val_dataloader and do_full
+                    else None
                 )
-                if val_dataloader and do_full
-                else None
-            )
-            carb = val_result.carb if val_result else None
-            per_t_carb = val_result.per_t_carb if val_result else None
-            train_val_result = (
-                self.validate(
-                    train_dataloader,
-                    max_batches=train_val_batches,
-                    compute_per_timestep_metrics=do_full,
+                carb = val_result.carb if val_result else None
+                per_t_carb = val_result.per_t_carb if val_result else None
+                train_val_result = (
+                    self.validate(
+                        train_dataloader,
+                        max_batches=train_val_batches,
+                        compute_per_timestep_metrics=do_full,
+                    )
+                    if val_metrics_on_train and do_full
+                    else None
                 )
-                if val_metrics_on_train and do_full
-                else None
-            )
-            train_carb = train_val_result.carb if train_val_result else None
-            train_per_t_carb = (
-                train_val_result.per_t_carb if train_val_result else None
-            )
+                train_carb = train_val_result.carb if train_val_result else None
+                train_per_t_carb = (
+                    train_val_result.per_t_carb if train_val_result else None
+                )
 
             new_best = None
             if carb and save_path and carb.f1 > best_f1:
@@ -370,12 +404,20 @@ class Trainer:
             f"{path}/checkpoint_{suffix}.pt" if suffix
             else f"{path}/checkpoint_epoch_{epoch}.pt"
         )
+        # For "best" checkpoint, save EMA weights as model_state_dict so
+        # load_checkpoint (used in eval) gets the smoothed weights directly.
+        if suffix == "best" and self._ema_state is not None:
+            model_state = self._ema_state
+        else:
+            model_state = self.model.state_dict()
+
         torch.save(
             {
                 "epoch": epoch,
                 "global_step": self.global_step,
-                "model_state_dict": self.model.state_dict(),
+                "model_state_dict": model_state,
                 "optimizer_state_dict": self.optimizer.state_dict(),
+                "ema_state_dict": self._ema_state,
             },
             fname,
         )
@@ -388,6 +430,8 @@ class Trainer:
         self.global_step = ckpt.get("global_step", 0)
         if "optimizer_state_dict" in ckpt and ckpt["optimizer_state_dict"]:
             self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        if "ema_state_dict" in ckpt and ckpt["ema_state_dict"] is not None:
+            self._ema_state = ckpt["ema_state_dict"]
         print(f"Loaded {path}")
 
 
@@ -406,6 +450,7 @@ class TrainerConfig(BaseModel):
     background_drop_prob: float = 0.8
     label_smoothing: float = 0.0
     warmup_steps: int = 0
+    ema_decay: float = 0.0  # 0 = disabled; typical values: 0.999, 0.9999
 
     @model_validator(mode="after")
     def _auto_device(self):
@@ -425,4 +470,5 @@ class TrainerConfig(BaseModel):
             label_smoothing=self.label_smoothing,
             warmup_steps=self.warmup_steps,
             total_steps=total_steps,
+            ema_decay=self.ema_decay,
         )
