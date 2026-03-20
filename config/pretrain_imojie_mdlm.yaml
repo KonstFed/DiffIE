@@ -23,16 +23,16 @@ model:
   scheduler:
     type: mdlm
     num_states: 5
-    num_steps: 64
+    num_steps: 8
     mask_state_id: 4
     device: "cpu"
     dtype: "float32"
-    alpha_schedule:
-      type: cosine
-      s: 0.008
     # alpha_schedule:
-    #   type: log_linear     # standard MDLM schedule: α(t) = eps^(t/T)
-    #   eps: 1e-4
+    #   type: cosine
+    #   s: 0.008
+    alpha_schedule:
+      type: log_linear # standard MDLM schedule: α(t) = eps^(t/T)
+      eps: 1e-4
     # alpha_schedule:
     #   type: linear
     #   eps: 1e-4
@@ -49,7 +49,7 @@ model:
     dropout: 0.1
     fuse: "concat"
     time_embed: "learnable"
-    num_timesteps: 64
+    num_timesteps: 8
   temperature: 1.0
   topk: null
   argmax: false
