@@ -4,7 +4,7 @@
 # alpha_schedule controls survival probability α(t): cosine | linear | log_linear | mi
 
 trainer:
-  ema_decay: 0.9999
+  ema_decay: 0
   type: "discrete_trainer"
   device: null
   learning_rate: 5e-5
@@ -24,7 +24,7 @@ model:
   scheduler:
     type: mdlm
     num_states: 5
-    num_steps: 8
+    num_steps: 64
     mask_state_id: 4
     device: "cpu"
     dtype: "float32"
@@ -45,15 +45,15 @@ model:
     num_states: 5
     model_dim: 512
     ctx_dim: 768
-    num_layers: 2
+    num_layers: 4
     num_heads: 8
     dropout: 0.1
     fuse: "concat"
     time_embed: "learnable"
-    num_timesteps: 8
+    num_timesteps: 64
   temperature: 1.0
   topk: null
-  argmax: false
+  argmax: true
   use_remasking: false
   remask_threshold_low: 0.3
   remask_threshold_high: 0.9
