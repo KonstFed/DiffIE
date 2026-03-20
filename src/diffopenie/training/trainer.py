@@ -29,8 +29,8 @@ from diffopenie.training.metrics import (
 )
 from diffopenie.utils import hprint
 
-# DEFAULT_CLASS_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
-DEFAULT_CLASS_WEIGHTS = [0.1, 0.3, 0.3, 0.3]
+DEFAULT_CLASS_WEIGHTS = [0.25, 0.25, 0.25, 0.25]
+# DEFAULT_CLASS_WEIGHTS = [0.1, 0.3, 0.3, 0.3]
 
 IGNORE_INDEX = -100
 
