@@ -2,7 +2,7 @@
 trainer:
   ema_decay: 0.9999
   type: "discrete_trainer"
-  device: null
+  device: "mps"
   learning_rate: 5e-5
   encoder_lr: 5e-5
   weight_decay: 0.01
@@ -54,9 +54,11 @@ model:
   remask_threshold_low: 0.3
   remask_threshold_high: 0.9
   extractor:
-    type: frequency
-    k: 10
-    topk: 3
+    type: meanshift
+    n_samples: 1024
+    bandwidth: null # or a float like 2.0
+    use_span_embs: true
+    pca_components: 16
 
 data:
   train_dataset:

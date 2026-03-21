@@ -12,6 +12,7 @@ from diffopenie.models.discrete.extractors import (
     ExtractorConfig,
     FrequencyExtractor,
     FrequencyExtractorConfig,
+    Span,
     Triplet,
 )
 from diffopenie.data.triplet_utils import extract_longest_span
@@ -21,6 +22,21 @@ SchedulerConfig = Annotated[
     Union[D3PMScheduleConfig, MDLMScheduleConfig],
     Field(discriminator="type"),
 ]
+
+
+def _avg_span_emb(
+    embs: torch.Tensor,  # [L, D]
+    word_ids: list[int | None],
+    span: Span,
+) -> torch.Tensor | None:
+    """Average token embeddings for all tokens whose word_id falls within span (inclusive)."""
+    if span is None:
+        return None
+    start, end = span
+    indices = [j for j, wid in enumerate(word_ids) if wid is not None and start <= wid <= end]
+    if not indices:
+        return None
+    return embs[indices].mean(dim=0)
 
 
 def _topk_filter_logits(logits: torch.Tensor, k: int) -> torch.Tensor:
@@ -111,15 +127,29 @@ class DiscreteModel(nn.Module):
 
     @torch.no_grad()
     def get_triplets(
-        self, words: list[list[str]]
-    ) -> list[tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]:
+        self,
+        words: list[list[str]],
+        *,
+        n: int = 1,
+        return_span_embs: bool = False,
+    ) -> list[Triplet] | tuple[list[Triplet], list[tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]]]:
         """
         Get triplets (subj_span, obj_span, pred_span) as word index spans from a
         batch of word lists. Uses generate() for reverse diffusion, then decodes
         state indices (1=subj, 2=obj, 3=pred) to spans.
+
+        Args:
+            words: Batch of word lists.
+            n: Number of independent generations per input sentence. BERT is run
+               once per sentence; embeddings are repeated n times so the diffusion
+               sampler sees a batch of size len(words)*n. Returns len(words)*n
+               triplets in order [n results for words[0], n for words[1], ...].
+            return_span_embs: If True, also return per-span averaged BERT embeddings
+               as a list of (sub_emb, rel_emb, obj_emb) tuples, one per result.
+               Each embedding is a [ctx_dim] CPU tensor, or None if the span is None.
         """
         if not words:
-            return []
+            return ([], []) if return_span_embs else []
         device = self.device
         encodings = self.encoder.tokenizer(
             words,
@@ -130,21 +160,37 @@ class DiscreteModel(nn.Module):
         )
         token_ids = encodings["input_ids"].to(device)
         attention_mask = encodings["attention_mask"].to(device)
-        token_embeddings = self.encode_tokens(token_ids, attention_mask)
-        batch_size = token_embeddings.shape[0]
+        token_embeddings = self.encode_tokens(token_ids, attention_mask)  # [B, L, D]
+
+        if n > 1:
+            token_embeddings = token_embeddings.repeat_interleave(n, dim=0)
+            attention_mask = attention_mask.repeat_interleave(n, dim=0)
+
         pred_states = self.generate(
-            batch_size=batch_size,
+            batch_size=token_embeddings.shape[0],
             token_embeddings=token_embeddings,
             attention_mask=attention_mask,
         )
         pred_states = pred_states.cpu()
-        results = []
-        for i in range(len(words)):
-            word_ids = encodings.word_ids(batch_index=i)
+        embs_cpu = token_embeddings.cpu() if return_span_embs else None
+
+        results: list[Triplet] = []
+        span_embs: list[tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]] = []
+        for i in range(len(words) * n):
+            word_ids = encodings.word_ids(batch_index=i // n)
             sub_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["S"]), word_ids)
             obj_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["O"]), word_ids)
             pred_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["R"]), word_ids)
             results.append((sub_span, obj_span, pred_span))
+            if return_span_embs:
+                span_embs.append((
+                    _avg_span_emb(embs_cpu[i], word_ids, sub_span),
+                    _avg_span_emb(embs_cpu[i], word_ids, obj_span),
+                    _avg_span_emb(embs_cpu[i], word_ids, pred_span),
+                ))
+
+        if return_span_embs:
+            return results, span_embs
         return results
 
     def get_carb_prediction(
