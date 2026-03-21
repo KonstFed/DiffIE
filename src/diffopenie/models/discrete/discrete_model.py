@@ -141,13 +141,7 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             sub_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["S"]), word_ids)
             obj_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["O"]), word_ids)
             pred_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["R"]), word_ids)
-            results.append(
-                (
-                    sub_span if sub_span is not None else (0, 0),
-                    obj_span if obj_span is not None else (0, 0),
-                    pred_span if pred_span is not None else (0, 0),
-                )
-            )
+            results.append((sub_span, obj_span, pred_span))
         return results
 
     @torch.no_grad()

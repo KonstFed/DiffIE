@@ -43,42 +43,36 @@ def format_carb_txt(
     return f"1 ({subject} ; {predicate} ; {object_})"
 
 
+SentenceExtractions = list[tuple[str, str, str, float]]  # (pred, subj, obj, prob)
+
+
 def process_sentences(
     model: BaseTripletModel,
     sentences: list[str],
-    batch_size: int = 32,
-) -> list[tuple[str, str, str, str]]:
+) -> list[tuple[str, SentenceExtractions]]:
     """
-    Process sentences and extract triplets.
+    Process sentences and extract triplet distributions.
 
     Returns:
-        List of (sentence, predicate, subject, object) tuples
+        List of (sentence, extractions) where extractions is a list of
+        (predicate, subject, object, probability) tuples in descending
+        probability order.
     """
     results = []
 
-    for i in tqdm(
-        range(0, len(sentences), batch_size), desc="Processing sentences"
-    ):
-        batch_sentences = sentences[i : i + batch_size]
-        batch_words = [sentence.split() for sentence in batch_sentences]
+    for sentence in tqdm(sentences, desc="Processing sentences"):
+        words = sentence.split()
+        triplets, probs = model.get_carb_prediction(words)
 
-        # Get triplets for the batch
-        triplets = model.get_triplets(batch_words)
-
-        # Format results
-        for sentence, words, (sub_span, obj_span, pred_span) in zip(
-            batch_sentences, batch_words, triplets
-        ):
+        extractions: SentenceExtractions = []
+        for (sub_span, obj_span, pred_span), prob in zip(triplets, probs):
             subject = extract_span_text(words, sub_span)
             object_ = extract_span_text(words, obj_span)
             predicate = extract_span_text(words, pred_span)
-
-            # Only include if we have at least subject, predicate, and object
             if subject and predicate and object_:
-                results.append((sentence, predicate, subject, object_))
-            else:
-                # Include empty extraction if no valid triplet found
-                results.append((sentence, "", "", ""))
+                extractions.append((predicate, subject, object_, prob))
+
+        results.append((sentence, extractions))
 
     return results
 
@@ -108,12 +102,6 @@ def main():
         required=True,
         help="Directory to save output files",
     )
-    argparser.add_argument(
-        "--batch-size",
-        type=int,
-        default=32,
-        help="Batch size for processing sentences",
-    )
     args = argparser.parse_args()
 
     # Load model
@@ -127,10 +115,10 @@ def main():
     with open(args.input_sentences, "r", encoding="utf-8") as f:
         sentences = [line.strip() for line in f if line.strip()]
 
-    print(f"Processing {len(sentences)} sentences...")
+    print(f"Processing {len(sentences)} sentences (carb_k={model.carb_k}, carb_topk={model.carb_topk})...")
 
-    # Process sentences and get predictions
-    predictions = process_sentences(model, sentences, batch_size=args.batch_size)
+    # Process sentences and get triplet distributions
+    predictions = process_sentences(model, sentences)
 
     # Create output directory
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -139,10 +127,10 @@ def main():
     tsv_path = args.output_dir / "extractions.tsv"
     print(f"Writing TSV predictions to {tsv_path}...")
     with open(tsv_path, "w", encoding="utf-8") as f:
-        for sentence, predicate, subject, object_ in predictions:
-            if predicate and subject and object_:
+        for sentence, extractions in predictions:
+            for predicate, subject, object_, prob in extractions:
                 f.write(
-                    format_carb_tsv(sentence, predicate, subject, object_, prob=1.0)
+                    format_carb_tsv(sentence, predicate, subject, object_, prob=prob)
                     + "\n"
                 )
 
@@ -150,19 +138,20 @@ def main():
     txt_path = args.output_dir / "extractions.txt"
     print(f"Writing TXT predictions to {txt_path}...")
     with open(txt_path, "w", encoding="utf-8") as f:
-        for sentence, predicate, subject, object_ in predictions:
+        for sentence, extractions in predictions:
             f.write(sentence + "\n")
-            if predicate and subject and object_:
-                f.write(
-                    format_carb_txt(sentence, predicate, subject, object_) + "\n"
-                )
+            for predicate, subject, object_, _prob in extractions:
+                f.write(format_carb_txt(sentence, predicate, subject, object_) + "\n")
             f.write("\n")
 
     # Print statistics
-    valid_extractions = sum(1 for _, p, s, o in predictions if p and s and o)
+    total_extractions = sum(len(exts) for _, exts in predictions)
+    sentences_with_extractions = sum(1 for _, exts in predictions if exts)
     print("\nCompleted!")
     print(f"Total sentences: {len(sentences)}")
-    print(f"Valid extractions: {valid_extractions}")
+    print(f"Sentences with extractions: {sentences_with_extractions}")
+    print(f"Total extractions: {total_extractions}")
+    print(f"Avg extractions per sentence: {total_extractions / len(sentences):.2f}")
     print(f"Output files saved to: {args.output_dir}")
 
 

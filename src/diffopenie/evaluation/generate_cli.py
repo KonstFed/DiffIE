@@ -24,7 +24,7 @@ def sample_triplets(
     for sentence in sentences:
         words = sentence.split()
         sentence_triplets = []
-        triplets, probs = model.get_carb_prediction(words, k=num_samples_per_sentence)
+        triplets, probs = model.get_carb_prediction(words)
         for triplet, prob in zip(triplets, probs):
             (sub_span, obj_span, pred_span) = triplet
             subject = extract_span_text(words, sub_span)
@@ -117,7 +117,13 @@ def main():
         words = sent.split()
         print(f"Sentence: {sent}")
         for i, (subj, pred, obj, (sub_span, obj_span, pred_span), confidence) in enumerate(triplets):
-            hprint_s(words, sub_span, obj_span, pred_span, legend=(i == 0))
+            hprint_s(
+                words,
+                sub_span  or (0, 0),
+                obj_span  or (0, 0),
+                pred_span or (0, 0),
+                legend=(i == 0),
+            )
             print(f"  Confidence: {confidence}")
             lines.append(f"{subj} ; {pred} ; {obj}")
         print()

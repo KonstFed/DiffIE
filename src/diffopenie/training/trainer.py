@@ -338,11 +338,11 @@ class Trainer:
 
         for sent in tqdm(sentences, desc="CaRB val", leave=False):
             words = sent.split()
-            triplets, probs = self.model.get_carb_prediction(
-                words, k=self.model.carb_k, topk=self.model.carb_topk
-            )
+            triplets, probs = self.model.get_carb_prediction(words)
             exs = []
             for (sub_span, obj_span, pred_span), prob in zip(triplets, probs):
+                if sub_span is None or obj_span is None or pred_span is None:
+                    continue
                 subj = " ".join(words[sub_span[0] : sub_span[1] + 1])
                 obj_ = " ".join(words[obj_span[0] : obj_span[1] + 1])
                 pred = " ".join(words[pred_span[0] : pred_span[1] + 1])
