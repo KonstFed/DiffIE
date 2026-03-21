@@ -81,8 +81,10 @@ model:
   use_remasking: false
   remask_threshold_low: 0.3 # at t=1
   remask_threshold_high: 0.9 # at t=T
-  carb_k: 10
-  carb_topk: 5
+  extractor:
+    type: frequency
+    k: 10
+    topk: 5
 
 # Train: Imojie TSV + LSOIE train. Val: LSOIE validation + LSOIE test (each wrapped in CachedDataset).
 # When fine-tuning BERT (model.encoder.freeze: false), set encoder to null so embeddings

@@ -56,8 +56,10 @@ model:
   use_remasking: false
   remask_threshold_low: 0.3
   remask_threshold_high: 0.9
-  carb_k: 10
-  carb_topk: 3
+  extractor:
+    type: frequency
+    k: 10
+    topk: 3
 
 data:
   train_dataset:

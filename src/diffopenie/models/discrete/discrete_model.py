@@ -4,11 +4,16 @@ from torch import nn
 import torch
 from pydantic import BaseModel, ConfigDict, Field
 
-from diffopenie.models.base_model import BaseTripletModel
 from diffopenie.models.encoder import BERTEncoder, BERTEncoderConfig
 from diffopenie.diffusion.discrete import D3PMSchedule, D3PMScheduleConfig
 from diffopenie.diffusion.mdlm import MDLMSchedule, MDLMScheduleConfig
 from diffopenie.models.discrete.denoiser import DiscreteDenoiser, DiscreteDenoiserConfig
+from diffopenie.models.discrete.extractors import (
+    ExtractorConfig,
+    FrequencyExtractor,
+    FrequencyExtractorConfig,
+    Triplet,
+)
 from diffopenie.data.triplet_utils import extract_longest_span
 from diffopenie.data import SEQ_INT2STR, SEQ_STR2INT
 
@@ -30,33 +35,31 @@ def _topk_filter_logits(logits: torch.Tensor, k: int) -> torch.Tensor:
     return torch.where(logits >= thresh, logits, torch.full_like(logits, float("-inf")))
 
 
-class DiscreteModel(nn.Module, BaseTripletModel):
+class DiscreteModel(nn.Module):
     def __init__(
         self,
         encoder: BERTEncoder,
         scheduler: D3PMSchedule | MDLMSchedule,
         denoiser: DiscreteDenoiser,
+        extractor: FrequencyExtractor,
         temperature: float = 1.0,
         topk: int | None = None,
         argmax: bool = False,
         use_remasking: bool = False,
         remask_threshold_low: float = 0.3,
         remask_threshold_high: float = 1.0,
-        carb_k: int = 10,
-        carb_topk: int = 5,
     ):
         super().__init__()
         self.encoder = encoder
         self.scheduler = scheduler
         self.denoiser = denoiser
+        self.extractor = extractor
         self.temperature = temperature
         self.topk = topk
         self.argmax = argmax
         self.use_remasking = use_remasking
         self.remask_threshold_low = remask_threshold_low
         self.remask_threshold_high = remask_threshold_high
-        self.carb_k = carb_k
-        self.carb_topk = carb_topk
 
     @property
     def device(self) -> torch.device:
@@ -144,6 +147,13 @@ class DiscreteModel(nn.Module, BaseTripletModel):
             results.append((sub_span, obj_span, pred_span))
         return results
 
+    def get_carb_prediction(
+        self,
+        words: list[str],
+    ) -> tuple[list[Triplet], list[float]]:
+        """Get CARB predictions using the configured extractor."""
+        return self.extractor.get_carb_prediction(words, self.get_triplets)
+
     @torch.no_grad()
     def generate(
         self,
@@ -225,14 +235,13 @@ class DiscreteModelConfig(BaseModel):
     encoder: BERTEncoderConfig
     scheduler: SchedulerConfig
     denoiser: DiscreteDenoiserConfig
+    extractor: ExtractorConfig = Field(default_factory=FrequencyExtractorConfig)
     temperature: float = 1.0
     topk: int | None = None
     argmax: bool = False
     use_remasking: bool = False
     remask_threshold_low: float = 0.3
     remask_threshold_high: float = 1.0
-    carb_k: int = 10
-    carb_topk: int = 5
 
     def create(self) -> DiscreteModel:
         """Build DiscreteModel from configs."""
@@ -240,12 +249,11 @@ class DiscreteModelConfig(BaseModel):
             encoder=self.encoder.create(),
             scheduler=self.scheduler.create(),
             denoiser=self.denoiser.create(),
+            extractor=self.extractor.create(),
             temperature=self.temperature,
             topk=self.topk,
             argmax=self.argmax,
             use_remasking=self.use_remasking,
             remask_threshold_low=self.remask_threshold_low,
             remask_threshold_high=self.remask_threshold_high,
-            carb_k=self.carb_k,
-            carb_topk=self.carb_topk,
         )

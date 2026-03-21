@@ -4,12 +4,12 @@ from tqdm import tqdm
 
 from diffopenie.training.train_example import TrainingConfig
 from diffopenie.utils import load_config
-from diffopenie.models.base_model import BaseTripletModel
+from diffopenie.models.discrete.discrete_model import DiscreteModel
 
 
 def load_model(
     config: TrainingConfig, checkpoint_path: Path
-) -> BaseTripletModel:
+) -> DiscreteModel:
     model = config.model.create()
     trainer = config.trainer.create(model=model)
     trainer.load_checkpoint(checkpoint_path)
@@ -47,7 +47,7 @@ SentenceExtractions = list[tuple[str, str, str, float]]  # (pred, subj, obj, pro
 
 
 def process_sentences(
-    model: BaseTripletModel,
+    model: DiscreteModel,
     sentences: list[str],
 ) -> list[tuple[str, SentenceExtractions]]:
     """

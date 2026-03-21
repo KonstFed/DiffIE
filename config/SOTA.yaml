@@ -1,8 +1,4 @@
-# MDLM (Masked Diffusion Language Model) training config.
-# Same data/model/trainer as D3PM but uses MDLM concrete-score reverse sampling
-# instead of D3PM transition matrices. Mask-absorbing only.
-# alpha_schedule controls survival probability α(t): cosine | linear | log_linear | mi
-
+# it is actually was trained mostly on imojie
 trainer:
   ema_decay: 0.9999
   type: "discrete_trainer"
@@ -57,8 +53,10 @@ model:
   use_remasking: false
   remask_threshold_low: 0.3
   remask_threshold_high: 0.9
-  carb_k: 10
-  carb_topk: 3
+  extractor:
+    type: frequency
+    k: 10
+    topk: 3
 
 data:
   train_dataset:

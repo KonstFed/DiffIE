@@ -4,13 +4,14 @@ import argparse
 from pathlib import Path
 
 from diffopenie.evaluation.carb_eval import load_model, extract_span_text
-from diffopenie.models.base_model import BaseTripletModel, Triplet
+from diffopenie.models.discrete.discrete_model import DiscreteModel
+from diffopenie.models.discrete.extractors import Triplet
 from diffopenie.training.train_example import TrainingConfig
 from diffopenie.utils import load_config, hprint_s
 
 
 def sample_triplets(
-    model: BaseTripletModel,
+    model: DiscreteModel,
     sentences: list[str],
     num_samples_per_sentence: int = 1,
 ) -> list[list[tuple[str, str, str], Triplet, float]]:

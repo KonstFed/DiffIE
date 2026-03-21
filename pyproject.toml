@@ -24,6 +24,7 @@ dependencies = [
     "torchmetrics>=1.0.0",
     "openai>=2.29.0",
     "python-dotenv>=1.2.2",
+    "streamlit>=1.55.0",
 ]
 
 [tool.poetry]
