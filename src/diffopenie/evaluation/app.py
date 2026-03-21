@@ -219,7 +219,6 @@ def main() -> None:
         seed_val = int(st.number_input("Seed", min_value=0, value=42, step=1))
         actual_seed = seed_val if use_seed else None
 
-        carb_k = int(st.number_input("CaRB samples (k)", min_value=1, value=16, step=1))
 
     # ── Model loading ──────────────────────────────────────────────────────────
     if load_btn:
@@ -417,16 +416,13 @@ def main() -> None:
             st.info("CaRB prediction requires a sentence.")
         else:
             st.caption(
-                f"Samples model **{carb_k}** times and returns the most frequent triplets."
+                "Samples model multiple times and returns the most frequent triplets."
             )
-            run_carb = st.button(f"▶  Run CaRB prediction  (k = {carb_k})")
+            run_carb = st.button("▶  Run CaRB prediction")
 
             if run_carb:
-                with st.spinner(f"Sampling {carb_k} times..."):
-                    orig_k = model.carb_k
-                    model.carb_k = carb_k
+                with st.spinner("Sampling..."):
                     triplets, probs = model.get_carb_prediction(words)
-                    model.carb_k = orig_k
                 st.session_state["carb_results"] = (triplets, probs, list(words))
 
             if "carb_results" in st.session_state:

@@ -1,15 +1,14 @@
-from pathlib import Path
 import argparse
+from pathlib import Path
+
 from tqdm import tqdm
 
+from diffopenie.models.discrete.discrete_model import DiscreteModel
 from diffopenie.training.train_example import TrainingConfig
 from diffopenie.utils import load_config
-from diffopenie.models.discrete.discrete_model import DiscreteModel
 
 
-def load_model(
-    config: TrainingConfig, checkpoint_path: Path
-) -> DiscreteModel:
+def load_model(config: TrainingConfig, checkpoint_path: Path) -> DiscreteModel:
     model = config.model.create()
     trainer = config.trainer.create(model=model)
     trainer.load_checkpoint(checkpoint_path)
@@ -36,9 +35,7 @@ def format_carb_tsv(
     return f"{sentence}\t{prob}\t{predicate}\t{subject}\t{object_}"
 
 
-def format_carb_txt(
-    sentence: str, predicate: str, subject: str, object_: str
-) -> str:
+def format_carb_txt(sentence: str, predicate: str, subject: str, object_: str) -> str:
     """Format a triplet in CARB TXT format."""
     return f"1 ({subject} ; {predicate} ; {object_})"
 
@@ -115,7 +112,7 @@ def main():
     with open(args.input_sentences, "r", encoding="utf-8") as f:
         sentences = [line.strip() for line in f if line.strip()]
 
-    print(f"Processing {len(sentences)} sentences (carb_k={model.carb_k}, carb_topk={model.carb_topk})...")
+    print(f"Processing {len(sentences)} sentences")
 
     # Process sentences and get triplet distributions
     predictions = process_sentences(model, sentences)
