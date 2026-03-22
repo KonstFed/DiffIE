@@ -12,7 +12,9 @@ from diffopenie.diffusion.discrete import D3PMSchedule
 from diffopenie.diffusion.mdlm import MDLMSchedule
 
 
-def plot_survival_prob(scheduler: D3PMSchedule | MDLMSchedule, save_path: str | None = None):
+def plot_survival_prob(
+    scheduler: D3PMSchedule | MDLMSchedule, save_path: str | None = None
+):
     """
     Plot cumulative survival probability for each non-mask state in a
     mask_absorbing scheduler: P(x_t = x_0 | x_0 = k) for t = 0..T.
@@ -40,7 +42,13 @@ def plot_survival_prob(scheduler: D3PMSchedule | MDLMSchedule, save_path: str | 
             continue
         surv = [barQ[t, k, k].item() for t in ts]
         ax.plot(ts, surv, label=f"state {k}")
-    ax.plot(ts, 1 - torch.tensor(cum_survival), "k--", label=r"$1 - \prod_{s=1}^t (1-\beta_s)$", linewidth=2)
+    ax.plot(
+        ts,
+        1 - torch.tensor(cum_survival),
+        "k--",
+        label=r"$1 - \prod_{s=1}^t (1-\beta_s)$",
+        linewidth=2,
+    )
     ax.set_xlabel("timestep t")
     ax.set_ylabel("P(x_t = x_0 | x_0 = k)")
     ax.set_title("Survival probability (stay in original state)")
@@ -103,6 +111,8 @@ if __name__ == "__main__":
     elif hasattr(sched_cfg, "alpha_schedule"):
         print(f"{sched_type} / alpha_schedule: {sched_cfg.alpha_schedule.type}")
 
-    print(f"kernel={scheduler.kernel}  K={scheduler.num_states}  T={scheduler.num_steps}")
+    print(
+        f"kernel={scheduler.kernel}  K={scheduler.num_states}  T={scheduler.num_steps}"
+    )
     print(f"betas: min={scheduler.betas.min():.6f}  max={scheduler.betas.max():.6f}")
     plot_survival_prob(scheduler, save_path="survival_prob.png")

@@ -219,7 +219,6 @@ def main() -> None:
         seed_val = int(st.number_input("Seed", min_value=0, value=42, step=1))
         actual_seed = seed_val if use_seed else None
 
-
     # ── Model loading ──────────────────────────────────────────────────────────
     if load_btn:
         _load_model_cached.clear()

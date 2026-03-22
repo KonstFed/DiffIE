@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 class SinusoidalTimeEmbedding(nn.Module):
     """Classic sinusoidal embedding for timesteps, then projected to model_dim."""
+
     def __init__(self, model_dim: int, max_period: int = 10_000):
         super().__init__()
         self.model_dim = model_dim
@@ -28,7 +29,9 @@ class SinusoidalTimeEmbedding(nn.Module):
         device = t.device
         # frequencies
         freqs = torch.exp(
-            -math.log(self.max_period) * torch.arange(0, half, device=device).float() / half
+            -math.log(self.max_period)
+            * torch.arange(0, half, device=device).float()
+            / half
         )  # (half,)
         args = t.float()[:, None] * freqs[None, :]  # (B, half)
         emb = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)  # (B, 2*half)
@@ -39,6 +42,7 @@ class SinusoidalTimeEmbedding(nn.Module):
 
 class LearnableTimeEmbedding(nn.Module):
     """Learnable lookup embedding for timesteps: t -> embedding table(t)."""
+
     def __init__(self, num_timesteps: int, model_dim: int):
         super().__init__()
         self.num_timesteps = num_timesteps
@@ -58,7 +62,14 @@ class LearnableTimeEmbedding(nn.Module):
 
 class TransformerDenoiserBlock(nn.Module):
     """Pre-LN Transformer encoder block with attention mask support."""
-    def __init__(self, model_dim: int, num_heads: int, mlp_ratio: float = 4.0, dropout: float = 0.0):
+
+    def __init__(
+        self,
+        model_dim: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        dropout: float = 0.0,
+    ):
         super().__init__()
         self.ln1 = nn.LayerNorm(model_dim)
         self.attn = nn.MultiheadAttention(
@@ -74,10 +85,14 @@ class TransformerDenoiserBlock(nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, x: torch.Tensor, key_padding_mask: torch.Tensor | None) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, key_padding_mask: torch.Tensor | None
+    ) -> torch.Tensor:
         # key_padding_mask: (B, L) with True at PAD positions (PyTorch convention)
         h = self.ln1(x)
-        attn_out, _ = self.attn(h, h, h, key_padding_mask=key_padding_mask, need_weights=False)
+        attn_out, _ = self.attn(
+            h, h, h, key_padding_mask=key_padding_mask, need_weights=False
+        )
         x = x + attn_out
         x = x + self.mlp(self.ln2(x))
         return x
@@ -102,16 +117,17 @@ class DiscreteDenoiser(nn.Module):
 
     Time embedding: set time_embed="none" to train without timestep conditioning.
     """
+
     def __init__(
         self,
         *,
-        num_states: int,          # K
-        model_dim: int,           # D
-        ctx_dim: int,             # D_ctx (dimension of token_embeddings)
+        num_states: int,  # K
+        model_dim: int,  # D
+        ctx_dim: int,  # D_ctx (dimension of token_embeddings)
         num_layers: int = 4,
         num_heads: int = 4,
         dropout: float = 0.0,
-        fuse: str = "sum",        # "sum" or "concat"
+        fuse: str = "sum",  # "sum" or "concat"
         time_embed: str = "cosine",  # "cosine", "learnable", or "none"
         num_timesteps: int | None = None,  # required when time_embed == "learnable"
     ):
@@ -121,7 +137,9 @@ class DiscreteDenoiser(nn.Module):
         if time_embed not in {"cosine", "learnable", "none"}:
             raise ValueError("time_embed must be 'cosine', 'learnable', or 'none'")
         if time_embed == "learnable" and (num_timesteps is None or num_timesteps <= 0):
-            raise ValueError("num_timesteps must be set and > 0 when time_embed == 'learnable'")
+            raise ValueError(
+                "num_timesteps must be set and > 0 when time_embed == 'learnable'"
+            )
 
         self.num_states = num_states
         self.model_dim = model_dim
@@ -154,7 +172,10 @@ class DiscreteDenoiser(nn.Module):
 
         # Transformer encoder stack
         self.blocks = nn.ModuleList(
-            [TransformerDenoiserBlock(model_dim, num_heads, dropout=dropout) for _ in range(num_layers)]
+            [
+                TransformerDenoiserBlock(model_dim, num_heads, dropout=dropout)
+                for _ in range(num_layers)
+            ]
         )
         self.final_ln = nn.LayerNorm(model_dim)
 
@@ -163,10 +184,10 @@ class DiscreteDenoiser(nn.Module):
 
     def forward(
         self,
-        x_t: torch.LongTensor,           # (B, L)
-        t: torch.LongTensor,             # (B,)
+        x_t: torch.LongTensor,  # (B, L)
+        t: torch.LongTensor,  # (B,)
         token_embeddings: torch.Tensor,  # (B, L, ctx_dim)
-        attention_mask: torch.Tensor,    # (B, L) 1=keep, 0=pad
+        attention_mask: torch.Tensor,  # (B, L) 1=keep, 0=pad
     ) -> torch.Tensor:
         B, L = x_t.shape
         if token_embeddings.shape[:2] != (B, L):
@@ -175,17 +196,21 @@ class DiscreteDenoiser(nn.Module):
             raise ValueError("attention_mask must have shape (B, L)")
 
         # PyTorch MHA uses key_padding_mask with True at pads
-        key_padding_mask = (attention_mask == 0)  # (B, L) bool
+        key_padding_mask = attention_mask == 0  # (B, L) bool
 
-        x_state = self.state_embed(x_t)               # (B, L, D)
-        x_ctx = self.ctx_proj(token_embeddings)       # (B, L, D)
-        t_emb = self.time_embed(t - 1).unsqueeze(1) if self.time_embed is not None else None  # (B, 1, D) or None
+        x_state = self.state_embed(x_t)  # (B, L, D)
+        x_ctx = self.ctx_proj(token_embeddings)  # (B, L, D)
+        t_emb = (
+            self.time_embed(t - 1).unsqueeze(1) if self.time_embed is not None else None
+        )  # (B, 1, D) or None
 
         if self.fuse == "sum":
             h = x_state + x_ctx + (t_emb if t_emb is not None else 0)
         else:
-            h = torch.cat([x_state + (t_emb if t_emb is not None else 0), x_ctx], dim=-1)  # (B, L, 2D)
-            h = self.fuse_proj(h)                     # (B, L, D)
+            h = torch.cat(
+                [x_state + (t_emb if t_emb is not None else 0), x_ctx], dim=-1
+            )  # (B, L, 2D)
+            h = self.fuse_proj(h)  # (B, L, D)
 
         h = self.fuse_dropout(self.fuse_ln(h))
         h_input = h
@@ -194,7 +219,7 @@ class DiscreteDenoiser(nn.Module):
             h = blk(h, key_padding_mask=key_padding_mask)
 
         h = self.final_ln(h + h_input)
-        logits = self.to_logits(h)                    # (B, L, K)
+        logits = self.to_logits(h)  # (B, L, K)
         return logits
 
 
@@ -205,20 +230,26 @@ class DiscreteDenoiserConfig(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
-    num_states: int   # K
-    model_dim: int    # D
-    ctx_dim: int      # D_ctx (dimension of token_embeddings)
+    num_states: int  # K
+    model_dim: int  # D
+    ctx_dim: int  # D_ctx (dimension of token_embeddings)
     num_layers: int = 4
     num_heads: int = 4
     dropout: float = 0.0
     fuse: str = "sum"  # "sum" or "concat"
     time_embed: str = "cosine"  # "cosine", "learnable", or "none"
-    num_timesteps: int | None = None  # required when time_embed == "learnable"; should match scheduler num_steps
+    num_timesteps: int | None = (
+        None  # required when time_embed == "learnable"; should match scheduler num_steps
+    )
 
     @model_validator(mode="after")
     def _check_learnable_timesteps(self) -> "DiscreteDenoiserConfig":
-        if self.time_embed == "learnable" and (self.num_timesteps is None or self.num_timesteps <= 0):
-            raise ValueError("num_timesteps must be set and > 0 when time_embed == 'learnable'")
+        if self.time_embed == "learnable" and (
+            self.num_timesteps is None or self.num_timesteps <= 0
+        ):
+            raise ValueError(
+                "num_timesteps must be set and > 0 when time_embed == 'learnable'"
+            )
         return self
 
     def create(self) -> DiscreteDenoiser:

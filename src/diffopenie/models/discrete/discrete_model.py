@@ -33,7 +33,9 @@ def _avg_span_emb(
     if span is None:
         return None
     start, end = span
-    indices = [j for j, wid in enumerate(word_ids) if wid is not None and start <= wid <= end]
+    indices = [
+        j for j, wid in enumerate(word_ids) if wid is not None and start <= wid <= end
+    ]
     if not indices:
         return None
     return embs[indices].mean(dim=0)
@@ -132,7 +134,13 @@ class DiscreteModel(nn.Module):
         *,
         n: int = 1,
         return_span_embs: bool = False,
-    ) -> list[Triplet] | tuple[list[Triplet], list[tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]]]:
+    ) -> (
+        list[Triplet]
+        | tuple[
+            list[Triplet],
+            list[tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]],
+        ]
+    ):
         """
         Get triplets (subj_span, obj_span, pred_span) as word index spans from a
         batch of word lists. Uses generate() for reverse diffusion, then decodes
@@ -175,19 +183,29 @@ class DiscreteModel(nn.Module):
         embs_cpu = token_embeddings.cpu() if return_span_embs else None
 
         results: list[Triplet] = []
-        span_embs: list[tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]] = []
+        span_embs: list[
+            tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]
+        ] = []
         for i in range(len(words) * n):
             word_ids = encodings.word_ids(batch_index=i // n)
-            sub_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["S"]), word_ids)
-            obj_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["O"]), word_ids)
-            pred_span = extract_longest_span((pred_states[i] == SEQ_STR2INT["R"]), word_ids)
+            sub_span = extract_longest_span(
+                (pred_states[i] == SEQ_STR2INT["S"]), word_ids
+            )
+            obj_span = extract_longest_span(
+                (pred_states[i] == SEQ_STR2INT["O"]), word_ids
+            )
+            pred_span = extract_longest_span(
+                (pred_states[i] == SEQ_STR2INT["R"]), word_ids
+            )
             results.append((sub_span, obj_span, pred_span))
             if return_span_embs:
-                span_embs.append((
-                    _avg_span_emb(embs_cpu[i], word_ids, sub_span),
-                    _avg_span_emb(embs_cpu[i], word_ids, obj_span),
-                    _avg_span_emb(embs_cpu[i], word_ids, pred_span),
-                ))
+                span_embs.append(
+                    (
+                        _avg_span_emb(embs_cpu[i], word_ids, sub_span),
+                        _avg_span_emb(embs_cpu[i], word_ids, obj_span),
+                        _avg_span_emb(embs_cpu[i], word_ids, pred_span),
+                    )
+                )
 
         if return_span_embs:
             return results, span_embs
@@ -222,7 +240,11 @@ class DiscreteModel(nn.Module):
         L = token_embeddings.shape[1]
         K = self.num_states
         T = self.scheduler.num_steps
-        mask_state_id = self.scheduler.mask_state_id if self.scheduler.kernel == "mask_absorbing" else None
+        mask_state_id = (
+            self.scheduler.mask_state_id
+            if self.scheduler.kernel == "mask_absorbing"
+            else None
+        )
 
         # Initialize x_T
         if self.scheduler.kernel == "mask_absorbing":
@@ -255,7 +277,9 @@ class DiscreteModel(nn.Module):
 
             if self.use_remasking and mask_state_id is not None:
                 confidence = p_x0.max(dim=-1).values  # (B, L)
-                threshold = self.remask_threshold_low + (self.remask_threshold_high - self.remask_threshold_low) * (ti / T)
+                threshold = self.remask_threshold_low + (
+                    self.remask_threshold_high - self.remask_threshold_low
+                ) * (ti / T)
                 remask = confidence < threshold
                 # only remask within valid tokens
                 remask = remask & attention_mask.to(torch.bool)

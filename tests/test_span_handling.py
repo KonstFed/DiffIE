@@ -56,6 +56,7 @@ def test_extract_longest_span(word_ids, pred_indices, expected, test_id):
     result = extract_longest_span(pred_tensor, word_ids)
     assert result == expected
 
+
 if __name__ == "__main__":
     pred_indices = [True, True, True, True, True, True]
     word_ids = [0, 1, 1, 2, 2, 2]

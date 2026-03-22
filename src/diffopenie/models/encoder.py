@@ -67,11 +67,15 @@ class BERTEncoder(nn.Module):
 
             # [B, L+2]: CLS <real tokens> SEP <PAD ...>
             new_ids = torch.full(
-                (B, L + 2), self.tokenizer.pad_token_id,
-                dtype=torch.long, device=device,
+                (B, L + 2),
+                self.tokenizer.pad_token_id,
+                dtype=torch.long,
+                device=device,
             )
             new_mask = torch.zeros(
-                (B, L + 2), dtype=torch.long, device=device,
+                (B, L + 2),
+                dtype=torch.long,
+                device=device,
             )
 
             new_ids[:, 0] = self.cls_token_id
@@ -90,14 +94,19 @@ class BERTEncoder(nn.Module):
 
             # Extract only real-token embeddings (skip CLS and SEP)
             token_embeddings = torch.zeros(
-                B, L, self.bert_dim, dtype=hidden.dtype, device=device,
+                B,
+                L,
+                self.bert_dim,
+                dtype=hidden.dtype,
+                device=device,
             )
             for i in range(B):
                 sl = lengths[i]
                 token_embeddings[i, :sl] = hidden[i, 1 : 1 + sl]
         else:
             outputs = self.model(
-                input_ids=input_ids, attention_mask=attention_mask,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
             )
             token_embeddings = outputs.last_hidden_state
 

@@ -68,7 +68,9 @@ class _ClusterExtractorBase:
     ) -> tuple[list[Triplet], list[SpanEmbs] | None]:
         if embs is None:
             return [t for t in candidates if all(s is not None for s in t)], None
-        pairs = [(t, e) for t, e in zip(candidates, embs) if all(s is not None for s in t)]
+        pairs = [
+            (t, e) for t, e in zip(candidates, embs) if all(s is not None for s in t)
+        ]
         if not pairs:
             return [], None
         valid_t, valid_e = zip(*pairs)
@@ -80,14 +82,23 @@ class _ClusterExtractorBase:
         valid_embs: list[SpanEmbs] | None,
     ) -> np.ndarray:
         if not self.use_span_embs or valid_embs is None:
-            return np.array([self._triplet_to_vec(t) for t in valid_triplets], dtype=float)
+            return np.array(
+                [self._triplet_to_vec(t) for t in valid_triplets], dtype=float
+            )
 
         D = next(
-            (e.shape[0] for emb_tuple in valid_embs for e in emb_tuple if e is not None),
+            (
+                e.shape[0]
+                for emb_tuple in valid_embs
+                for e in emb_tuple
+                if e is not None
+            ),
             None,
         )
         if D is None:
-            return np.array([self._triplet_to_vec(t) for t in valid_triplets], dtype=float)
+            return np.array(
+                [self._triplet_to_vec(t) for t in valid_triplets], dtype=float
+            )
 
         rows = []
         for sub_e, obj_e, pred_e in valid_embs:
@@ -156,7 +167,9 @@ class KMeansExtractor(_ClusterExtractorBase):
         words: list[str],
         get_triplets_fn: GetTripletsFn,
     ) -> tuple[list[Triplet], list[float]]:
-        raw = get_triplets_fn([words], n=self.n_samples, return_span_embs=self.use_span_embs)
+        raw = get_triplets_fn(
+            [words], n=self.n_samples, return_span_embs=self.use_span_embs
+        )
         if self.use_span_embs:
             candidates, embs = raw  # type: ignore[misc]
         else:
@@ -170,7 +183,9 @@ class KMeansExtractor(_ClusterExtractorBase):
         n_clusters = min(self.n_clusters, len(vecs))
         kmeans = KMeans(n_clusters=n_clusters, n_init="auto", random_state=0)
         labels = kmeans.fit_predict(vecs)
-        return self._results_from_labels(labels, valid, kmeans.cluster_centers_, n_clusters)
+        return self._results_from_labels(
+            labels, valid, kmeans.cluster_centers_, n_clusters
+        )
 
 
 class MeanShiftExtractor(_ClusterExtractorBase):
@@ -202,7 +217,9 @@ class MeanShiftExtractor(_ClusterExtractorBase):
         words: list[str],
         get_triplets_fn: GetTripletsFn,
     ) -> tuple[list[Triplet], list[float]]:
-        raw = get_triplets_fn([words], n=self.n_samples, return_span_embs=self.use_span_embs)
+        raw = get_triplets_fn(
+            [words], n=self.n_samples, return_span_embs=self.use_span_embs
+        )
         if self.use_span_embs:
             candidates, embs = raw  # type: ignore[misc]
         else:
@@ -213,7 +230,11 @@ class MeanShiftExtractor(_ClusterExtractorBase):
             return [], []
 
         vecs = self._build_vecs(valid, valid_embs)
-        if self.use_span_embs and self.pca_components is not None and self.pca_components < vecs.shape[1]:
+        if (
+            self.use_span_embs
+            and self.pca_components is not None
+            and self.pca_components < vecs.shape[1]
+        ):
             vecs = PCA(n_components=self.pca_components).fit_transform(vecs)
 
         bandwidth = self.bandwidth or estimate_bandwidth(vecs, quantile=0.3)

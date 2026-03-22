@@ -37,7 +37,9 @@ class CosineBetaSchedule:
         self.dtype = dtype
 
     def get_betas(self) -> torch.Tensor:
-        steps = torch.arange(1, self.num_steps + 1, device=self.device, dtype=self.dtype)
+        steps = torch.arange(
+            1, self.num_steps + 1, device=self.device, dtype=self.dtype
+        )
         t = steps / self.num_steps
         alpha_bar = torch.cos((t + self.s) / (1.0 + self.s) * (math.pi / 2.0)) ** 2
         alpha_bar_prev = torch.cat(
@@ -94,9 +96,7 @@ class LogLinearBetaSchedule:
 
     def get_betas(self) -> torch.Tensor:
         if self.num_steps == 1:
-            return torch.tensor(
-                [self.beta_start], device=self.device, dtype=self.dtype
-            )
+            return torch.tensor([self.beta_start], device=self.device, dtype=self.dtype)
         log_start = math.log(max(self.beta_start, 1e-10))
         log_end = math.log(max(self.beta_end, 1e-10))
         u = torch.linspace(
@@ -181,7 +181,9 @@ class CosineBetaScheduleConfig(BaseModel):
     type: Literal["cosine"] = "cosine"
     s: float = 0.008
 
-    def get_betas(self, num_steps: int, device: str, dtype: torch.dtype) -> torch.Tensor:
+    def get_betas(
+        self, num_steps: int, device: str, dtype: torch.dtype
+    ) -> torch.Tensor:
         return CosineBetaSchedule(
             num_steps=num_steps, s=self.s, device=device, dtype=dtype
         ).get_betas()
@@ -193,7 +195,9 @@ class LinearBetaScheduleConfig(BaseModel):
     beta_start: float = 0.0001
     beta_end: float = 0.02
 
-    def get_betas(self, num_steps: int, device: str, dtype: torch.dtype) -> torch.Tensor:
+    def get_betas(
+        self, num_steps: int, device: str, dtype: torch.dtype
+    ) -> torch.Tensor:
         return LinearBetaSchedule(
             num_steps=num_steps,
             beta_start=self.beta_start,
@@ -209,7 +213,9 @@ class LogLinearBetaScheduleConfig(BaseModel):
     beta_start: float = 0.0001
     beta_end: float = 0.02
 
-    def get_betas(self, num_steps: int, device: str, dtype: torch.dtype) -> torch.Tensor:
+    def get_betas(
+        self, num_steps: int, device: str, dtype: torch.dtype
+    ) -> torch.Tensor:
         return LogLinearBetaSchedule(
             num_steps=num_steps,
             beta_start=self.beta_start,
@@ -227,7 +233,9 @@ class MIBetaScheduleConfig(BaseModel):
     beta_min: float = 1e-8
     beta_max: float = 0.2
 
-    def get_betas(self, num_steps: int, device: str, dtype: torch.dtype) -> torch.Tensor:
+    def get_betas(
+        self, num_steps: int, device: str, dtype: torch.dtype
+    ) -> torch.Tensor:
         return mi_betas_absorbing(
             num_steps=num_steps,
             s_T=self.s_T,
@@ -321,7 +329,9 @@ class LogLinearAlphaSchedule:
         self.dtype = dtype
 
     def get_alphas(self) -> torch.Tensor:
-        t = torch.linspace(0.0, 1.0, self.num_steps + 1, device=self.device, dtype=self.dtype)
+        t = torch.linspace(
+            0.0, 1.0, self.num_steps + 1, device=self.device, dtype=self.dtype
+        )
         log_alpha = math.log(max(self.eps, 1e-10)) * t
         return torch.exp(log_alpha).clamp_min(1e-10)
 
@@ -349,10 +359,16 @@ class MIAlphaSchedule:
     def get_alphas(self) -> torch.Tensor:
         T = self.num_steps
         if self.mode == "linear":
-            return torch.linspace(1.0, self.s_T, steps=T + 1, device=self.device, dtype=self.dtype)
+            return torch.linspace(
+                1.0, self.s_T, steps=T + 1, device=self.device, dtype=self.dtype
+            )
         elif self.mode == "cosine":
-            u = torch.linspace(0.0, 1.0, steps=T + 1, device=self.device, dtype=self.dtype)
-            return (self.s_T + (1.0 - self.s_T) * torch.cos(u * torch.pi / 2.0) ** 2).clamp_min(1e-10)
+            u = torch.linspace(
+                0.0, 1.0, steps=T + 1, device=self.device, dtype=self.dtype
+            )
+            return (
+                self.s_T + (1.0 - self.s_T) * torch.cos(u * torch.pi / 2.0) ** 2
+            ).clamp_min(1e-10)
         else:
             raise ValueError("mode must be 'linear' or 'cosine'")
 
@@ -367,7 +383,9 @@ class CosineAlphaScheduleConfig(BaseModel):
     type: Literal["cosine"] = "cosine"
     s: float = 0.008
 
-    def get_alphas(self, num_steps: int, device: str, dtype: torch.dtype) -> torch.Tensor:
+    def get_alphas(
+        self, num_steps: int, device: str, dtype: torch.dtype
+    ) -> torch.Tensor:
         return CosineAlphaSchedule(
             num_steps=num_steps, s=self.s, device=device, dtype=dtype
         ).get_alphas()
@@ -378,7 +396,9 @@ class LinearAlphaScheduleConfig(BaseModel):
     type: Literal["linear"] = "linear"
     eps: float = 1e-4
 
-    def get_alphas(self, num_steps: int, device: str, dtype: torch.dtype) -> torch.Tensor:
+    def get_alphas(
+        self, num_steps: int, device: str, dtype: torch.dtype
+    ) -> torch.Tensor:
         return LinearAlphaSchedule(
             num_steps=num_steps, eps=self.eps, device=device, dtype=dtype
         ).get_alphas()
@@ -389,7 +409,9 @@ class LogLinearAlphaScheduleConfig(BaseModel):
     type: Literal["log_linear"] = "log_linear"
     eps: float = 1e-4
 
-    def get_alphas(self, num_steps: int, device: str, dtype: torch.dtype) -> torch.Tensor:
+    def get_alphas(
+        self, num_steps: int, device: str, dtype: torch.dtype
+    ) -> torch.Tensor:
         return LogLinearAlphaSchedule(
             num_steps=num_steps, eps=self.eps, device=device, dtype=dtype
         ).get_alphas()
@@ -401,9 +423,15 @@ class MIAlphaScheduleConfig(BaseModel):
     s_T: float = 0.1
     mode: Literal["linear", "cosine"] = "linear"
 
-    def get_alphas(self, num_steps: int, device: str, dtype: torch.dtype) -> torch.Tensor:
+    def get_alphas(
+        self, num_steps: int, device: str, dtype: torch.dtype
+    ) -> torch.Tensor:
         return MIAlphaSchedule(
-            num_steps=num_steps, s_T=self.s_T, mode=self.mode, device=device, dtype=dtype
+            num_steps=num_steps,
+            s_T=self.s_T,
+            mode=self.mode,
+            device=device,
+            dtype=dtype,
         ).get_alphas()
 
 

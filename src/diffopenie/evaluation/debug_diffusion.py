@@ -23,11 +23,11 @@ from diffopenie.utils import load_config
 
 # ANSI colors
 _C = {
-    "B": "\033[0m",      # reset (background)
-    "S": "\033[96m",     # cyan  (subject)
-    "R": "\033[95m",     # magenta (relation)
-    "O": "\033[92m",     # green (object)
-    "M": "\033[90m",     # grey
+    "B": "\033[0m",  # reset (background)
+    "S": "\033[96m",  # cyan  (subject)
+    "R": "\033[95m",  # magenta (relation)
+    "O": "\033[92m",  # green (object)
+    "M": "\033[90m",  # grey
 }
 _RESET = "\033[0m"
 _BOLD = "\033[1m"
@@ -64,7 +64,10 @@ def print_header(title: str) -> None:
 
 
 def print_aligned_row(
-    tokens: list[str], tags: list[str], label: str, widths: list[int],
+    tokens: list[str],
+    tags: list[str],
+    label: str,
+    widths: list[int],
 ) -> None:
     """Print one row: label + tokens colored by tags, padded to widths."""
     parts = []
@@ -197,14 +200,14 @@ def debug_single(
     if gt_labels is not None:
         correct = (x_0 == gt_labels).sum().item()
         total = len(gt_labels)
-        print(
-            f"\n  Accuracy: {correct}/{total}"
-            f" ({100 * correct / total:.1f}%)"
-        )
+        print(f"\n  Accuracy: {correct}/{total} ({100 * correct / total:.1f}%)")
 
         # Per-class breakdown
         for tag_name, tag_id in [
-            ("B", 0), ("S", 1), ("R", 2), ("O", 3),
+            ("B", 0),
+            ("S", 1),
+            ("R", 2),
+            ("O", 3),
         ]:
             gt_mask = gt_labels == tag_id
             if gt_mask.sum() == 0:
@@ -239,7 +242,8 @@ def _print_triplet_from_tags(
 
 
 def load_carb_data(
-    sentences_path: Path, gold_path: Path | None,
+    sentences_path: Path,
+    gold_path: Path | None,
 ) -> tuple[list[str], dict[str, list[tuple[str, str, str]]]]:
     """Load CaRB sentences and optional gold triplets.
 
@@ -262,9 +266,7 @@ def load_carb_data(
                     continue
                 sent = parts[0]
                 pred, subj, obj = parts[1], parts[2], parts[3]
-                gold_map.setdefault(sent, []).append(
-                    (subj, pred, obj)
-                )
+                gold_map.setdefault(sent, []).append((subj, pred, obj))
     return sentences, gold_map
 
 
@@ -282,7 +284,9 @@ def main():
     )
     parser.add_argument("--split", default="validation")
     parser.add_argument(
-        "--index", type=int, default=0,
+        "--index",
+        type=int,
+        default=0,
         help="Dataset/sentence index to inspect",
     )
     parser.add_argument(
@@ -298,7 +302,9 @@ def main():
         help="Path to CaRB repo (contains data/)",
     )
     parser.add_argument(
-        "--seed", type=int, default=None,
+        "--seed",
+        type=int,
+        default=None,
         help="Random seed for reproducibility",
     )
     args = parser.parse_args()
@@ -320,14 +326,15 @@ def main():
             is_split_into_words=True,
             add_special_tokens=False,
         )
-        toks = tokenizer.convert_ids_to_tokens(
-            encoding["input_ids"]
-        )
+        toks = tokenizer.convert_ids_to_tokens(encoding["input_ids"])
         print_header(f"Custom: {args.sentence}")
         with torch.no_grad():
             debug_single(
-                model, toks, encoding["input_ids"],
-                gt_labels=None, words=words,
+                model,
+                toks,
+                encoding["input_ids"],
+                gt_labels=None,
+                words=words,
             )
 
     elif args.dataset == "carb":
@@ -335,9 +342,7 @@ def main():
         carb_dir = args.carb_dir
         if carb_dir is None:
             # Default: sibling directory ../CaRB relative to project
-            carb_dir = (
-                Path(__file__).resolve().parents[3] / "CaRB"
-            )
+            carb_dir = Path(__file__).resolve().parents[3] / "CaRB"
         split = args.split
         if split == "validation":
             split = "dev"
@@ -345,9 +350,7 @@ def main():
         gold_path = carb_dir / "data" / "gold" / f"{split}.tsv"
 
         if not sent_path.exists():
-            raise FileNotFoundError(
-                f"CaRB sentences not found: {sent_path}"
-            )
+            raise FileNotFoundError(f"CaRB sentences not found: {sent_path}")
 
         sentences, gold_map = load_carb_data(sent_path, gold_path)
 
@@ -366,15 +369,16 @@ def main():
             is_split_into_words=True,
             add_special_tokens=False,
         )
-        toks = tokenizer.convert_ids_to_tokens(
-            encoding["input_ids"]
-        )
+        toks = tokenizer.convert_ids_to_tokens(encoding["input_ids"])
 
         print_header(f"[CaRB {split}] idx={args.index}: {sentence}")
         with torch.no_grad():
             debug_single(
-                model, toks, encoding["input_ids"],
-                gt_labels=None, words=words,
+                model,
+                toks,
+                encoding["input_ids"],
+                gt_labels=None,
+                words=words,
                 all_gt_carb=gt_carb if gt_carb else None,
             )
 
@@ -382,7 +386,8 @@ def main():
         # LSOIE dataset
         tokenizer_name = config.model.encoder.model_name
         ds = SequenceLSOEIDataset(
-            split=args.split, tokenizer_name=tokenizer_name,
+            split=args.split,
+            tokenizer_name=tokenizer_name,
         )
         item = ds[args.index]
         toks = item["tokens"]
@@ -394,18 +399,18 @@ def main():
         sentence = " ".join(words)
 
         # Find ALL GT label sequences for this sentence
-        matches = ds.dataset[
-            ds.dataset["sentence"] == sentence
-        ]
+        matches = ds.dataset[ds.dataset["sentence"] == sentence]
         all_gt = matches["label"].tolist()
 
-        print_header(
-            f"[{args.split}] idx={args.index}: {sentence}"
-        )
+        print_header(f"[{args.split}] idx={args.index}: {sentence}")
         with torch.no_grad():
             debug_single(
-                model, toks, token_ids, gt_labels,
-                words=words, all_gt_lsoie=all_gt,
+                model,
+                toks,
+                token_ids,
+                gt_labels,
+                words=words,
+                all_gt_lsoie=all_gt,
             )
 
 

@@ -69,7 +69,9 @@ class TrainingConfig(BaseModel):
     val_full_interval: int = 5
     val_metrics_on_train: bool = False
     train_val_batches: Optional[int] = None
-    model_weights: Optional[str] = None  # path to checkpoint for weight init (pretrain→finetune)
+    model_weights: Optional[str] = (
+        None  # path to checkpoint for weight init (pretrain→finetune)
+    )
     val_lsoie: bool = True  # token-overlap validation on LSOIE val split
     val_carb: bool = True  # CaRB benchmark validation (needs trainer.carb_*)
 

@@ -3,6 +3,11 @@ from pathlib import Path
 
 from tqdm import tqdm
 
+from diffopenie.evaluation.carb_metrics import (
+    evaluate,
+    load_gold_file,
+    load_predicted_file,
+)
 from diffopenie.models.discrete.discrete_model import DiscreteModel
 from diffopenie.training.train_example import TrainingConfig
 from diffopenie.utils import load_config
@@ -99,6 +104,12 @@ def main():
         required=True,
         help="Directory to save output files",
     )
+    argparser.add_argument(
+        "--gold",
+        type=Path,
+        default=None,
+        help="Path to CaRB gold TSV file; if provided, in-house metrics are printed after evaluation",
+    )
     args = argparser.parse_args()
 
     # Load model
@@ -150,6 +161,16 @@ def main():
     print(f"Total extractions: {total_extractions}")
     print(f"Avg extractions per sentence: {total_extractions / len(sentences):.2f}")
     print(f"Output files saved to: {args.output_dir}")
+
+    if args.gold:
+        print(f"\nComputing in-house CaRB metrics against {args.gold}...")
+        gold = load_gold_file(str(args.gold))
+        predicted = load_predicted_file(str(tsv_path))
+        result = evaluate(gold, predicted)
+        print(f"  AUC:       {result.auc:.3f}")
+        print(f"  Precision: {result.precision:.3f}")
+        print(f"  Recall:    {result.recall:.3f}")
+        print(f"  F1:        {result.f1:.3f}")
 
 
 if __name__ == "__main__":

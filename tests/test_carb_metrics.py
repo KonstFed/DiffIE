@@ -73,9 +73,7 @@ def _make_gold_tsv(extractions: dict[str, list[tuple[str, list[str]]]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _make_pred_tsv(
-    extractions: dict[str, list[tuple[float, str, list[str]]]]
-) -> str:
+def _make_pred_tsv(extractions: dict[str, list[tuple[float, str, list[str]]]]) -> str:
     """Build predicted TSV content: sent\\tconf\\tpred\\targ1\\targ2..."""
     lines = []
     for sent, exs in extractions.items():
@@ -180,9 +178,7 @@ class TestBinaryLenientMatch:
 class TestEvaluate:
     def test_perfect_predictions(self):
         gold = {
-            "John is a teacher .": [
-                Extraction(pred="is", args=["John", "a teacher"])
-            ],
+            "John is a teacher .": [Extraction(pred="is", args=["John", "a teacher"])],
         }
         pred = {
             "John is a teacher .": [
@@ -197,9 +193,7 @@ class TestEvaluate:
 
     def test_no_predictions(self):
         gold = {
-            "John is a teacher .": [
-                Extraction(pred="is", args=["John", "a teacher"])
-            ],
+            "John is a teacher .": [Extraction(pred="is", args=["John", "a teacher"])],
         }
         pred: dict = {}
         result = evaluate(gold, pred)
@@ -208,15 +202,11 @@ class TestEvaluate:
 
     def test_wrong_predictions(self):
         gold = {
-            "John is a teacher .": [
-                Extraction(pred="is", args=["John", "a teacher"])
-            ],
+            "John is a teacher .": [Extraction(pred="is", args=["John", "a teacher"])],
         }
         pred = {
             "John is a teacher .": [
-                Extraction(
-                    pred="runs", args=["Mary", "a doctor"], confidence=0.9
-                )
+                Extraction(pred="runs", args=["Mary", "a doctor"], confidence=0.9)
             ],
         }
         result = evaluate(gold, pred)
@@ -231,12 +221,8 @@ class TestEvaluate:
         }
         pred = {
             "John is a teacher and lives in London .": [
-                Extraction(
-                    pred="is", args=["John", "a teacher"], confidence=0.9
-                ),
-                Extraction(
-                    pred="lives in", args=["John", "London"], confidence=0.8
-                ),
+                Extraction(pred="is", args=["John", "a teacher"], confidence=0.9),
+                Extraction(pred="lives in", args=["John", "London"], confidence=0.8),
             ],
         }
         result = evaluate(gold, pred)
@@ -250,17 +236,11 @@ class TestEvaluate:
 class TestAgainstOriginalCarb:
     """Compare our implementation against the original CaRB on real data."""
 
-    def _write_files(
-        self, gold_content: str, pred_content: str
-    ) -> tuple[str, str]:
-        gold_f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".tsv", delete=False
-        )
+    def _write_files(self, gold_content: str, pred_content: str) -> tuple[str, str]:
+        gold_f = tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False)
         gold_f.write(gold_content)
         gold_f.close()
-        pred_f = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".tsv", delete=False
-        )
+        pred_f = tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False)
         pred_f.write(pred_content)
         pred_f.close()
         return gold_f.name, pred_f.name
@@ -382,11 +362,40 @@ class TestAgainstOriginalCarb:
 
         # Use a fixed vocabulary for reproducible random extractions
         vocab = [
-            "the", "a", "is", "was", "in", "on", "at", "of",
-            "John", "Mary", "cat", "dog", "house", "car", "city",
-            "big", "small", "old", "new", "red", "blue", "green",
-            "runs", "eats", "sees", "gives", "takes", "found",
-            "built", "made", "born", "lives", "said", "told",
+            "the",
+            "a",
+            "is",
+            "was",
+            "in",
+            "on",
+            "at",
+            "of",
+            "John",
+            "Mary",
+            "cat",
+            "dog",
+            "house",
+            "car",
+            "city",
+            "big",
+            "small",
+            "old",
+            "new",
+            "red",
+            "blue",
+            "green",
+            "runs",
+            "eats",
+            "sees",
+            "gives",
+            "takes",
+            "found",
+            "built",
+            "made",
+            "born",
+            "lives",
+            "said",
+            "told",
         ]
         sentences = [
             "John is a teacher in the big city .",
@@ -429,8 +438,7 @@ class TestAgainstOriginalCarb:
                     # Partial: drop some words
                     conf = float(rng.uniform(0.3, 0.8))
                     partial_args = [
-                        " ".join(a.split()[: max(1, len(a.split()) // 2)])
-                        for a in args
+                        " ".join(a.split()[: max(1, len(a.split()) // 2)]) for a in args
                     ]
                     exs.append((conf, pred_str, partial_args))
                 elif roll < 0.8:
@@ -500,16 +508,12 @@ class TestAgainstOriginalCarb:
         pred_lines = []
         for sent in subset_sents:
             for ex in gold_subset[sent]:
-                gold_lines.append(
-                    "\t".join([sent, ex.pred] + ex.args)
-                )
+                gold_lines.append("\t".join([sent, ex.pred] + ex.args))
                 # Sometimes produce exact match, sometimes noisy
                 conf = float(rng.uniform(0.3, 1.0))
                 if rng.random() < 0.5:
                     # Exact copy
-                    pred_lines.append(
-                        "\t".join([sent, str(conf), ex.pred] + ex.args)
-                    )
+                    pred_lines.append("\t".join([sent, str(conf), ex.pred] + ex.args))
                 else:
                     # Drop last word from each arg
                     noisy_args = [

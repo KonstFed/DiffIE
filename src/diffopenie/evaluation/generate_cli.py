@@ -31,9 +31,7 @@ def sample_triplets(
             subject = extract_span_text(words, sub_span)
             predicate = extract_span_text(words, pred_span)
             object_ = extract_span_text(words, obj_span)
-            sentence_triplets.append(
-                (subject, predicate, object_, triplet, prob)
-            )
+            sentence_triplets.append((subject, predicate, object_, triplet, prob))
         results.append(sentence_triplets)
     return results
 
@@ -110,18 +108,28 @@ def main():
             model.scheduler.to(args.device)
     model.eval()
 
-    print(f"Generating triplets for {len(sentences)} sentence(s), {args.num_samples} sample(s) each...")
-    sampled = sample_triplets(model, sentences, num_samples_per_sentence=args.num_samples)
+    print(
+        f"Generating triplets for {len(sentences)} sentence(s), {args.num_samples} sample(s) each..."
+    )
+    sampled = sample_triplets(
+        model, sentences, num_samples_per_sentence=args.num_samples
+    )
 
     lines = []
     for sent, triplets in zip(sentences, sampled):
         words = sent.split()
         print(f"Sentence: {sent}")
-        for i, (subj, pred, obj, (sub_span, obj_span, pred_span), confidence) in enumerate(triplets):
+        for i, (
+            subj,
+            pred,
+            obj,
+            (sub_span, obj_span, pred_span),
+            confidence,
+        ) in enumerate(triplets):
             hprint_s(
                 words,
-                sub_span  or (0, 0),
-                obj_span  or (0, 0),
+                sub_span or (0, 0),
+                obj_span or (0, 0),
                 pred_span or (0, 0),
                 legend=(i == 0),
             )

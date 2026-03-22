@@ -79,7 +79,12 @@ class TrainingLogger:
         carb_result=None,
     ):
         C, B, D, M, G, R = (
-            "\033[36m", "\033[1m", "\033[2m", "\033[35m", "\033[32m", "\033[0m",
+            "\033[36m",
+            "\033[1m",
+            "\033[2m",
+            "\033[35m",
+            "\033[32m",
+            "\033[0m",
         )
         print(f"\n{B}{C}Epoch {epoch}/{num_epochs}{R}")
         print(f"  {D}train_loss{R}\t{train_loss:.4g}")
@@ -141,34 +146,49 @@ class TrainingLogger:
         row = 0
 
         ax1 = fig.add_subplot(gs[row])
-        _plot_cols(ax1, df, epochs, [
-            ("train_loss", "Train"),
-            ("val_loss", "Val"),
-        ])
+        _plot_cols(
+            ax1,
+            df,
+            epochs,
+            [
+                ("train_loss", "Train"),
+                ("val_loss", "Val"),
+            ],
+        )
         ax1.set_title("Loss")
         ax1.grid(True, alpha=0.3)
         row += 1
 
         ax2 = fig.add_subplot(gs[row], sharex=ax1)
-        _plot_cols(ax2, df, epochs, [
-            ("direct_precision", "P"),
-            ("direct_recall", "R"),
-            ("direct_f1", "F1"),
-        ])
+        _plot_cols(
+            ax2,
+            df,
+            epochs,
+            [
+                ("direct_precision", "P"),
+                ("direct_recall", "R"),
+                ("direct_f1", "F1"),
+            ],
+        )
         ax2.set_title("Direct metrics (train forward pass)")
         ax2.grid(True, alpha=0.3)
         row += 1
 
         if has_lsoie:
             ax_lsoie = fig.add_subplot(gs[row], sharex=ax1)
-            _plot_cols(ax_lsoie, df, epochs, [
-                ("precision", "Val P"),
-                ("recall", "Val R"),
-                ("f1", "Val F1"),
-                ("train_precision", "Train P"),
-                ("train_recall", "Train R"),
-                ("train_f1", "Train F1"),
-            ])
+            _plot_cols(
+                ax_lsoie,
+                df,
+                epochs,
+                [
+                    ("precision", "Val P"),
+                    ("recall", "Val R"),
+                    ("f1", "Val F1"),
+                    ("train_precision", "Train P"),
+                    ("train_recall", "Train R"),
+                    ("train_f1", "Train F1"),
+                ],
+            )
             ax_lsoie.set_title("LSOIE token-overlap validation")
             ax_lsoie.set_ylim(0, 1.05)
             ax_lsoie.grid(True, alpha=0.3)
@@ -176,12 +196,17 @@ class TrainingLogger:
 
         if has_carb:
             ax_carb = fig.add_subplot(gs[row], sharex=ax1)
-            _plot_cols(ax_carb, df, epochs, [
-                ("carb_auc", "AUC"),
-                ("carb_precision", "P"),
-                ("carb_recall", "R"),
-                ("carb_f1", "F1"),
-            ])
+            _plot_cols(
+                ax_carb,
+                df,
+                epochs,
+                [
+                    ("carb_auc", "AUC"),
+                    ("carb_precision", "P"),
+                    ("carb_recall", "R"),
+                    ("carb_f1", "F1"),
+                ],
+            )
             ax_carb.set_title("CaRB benchmark (dev)")
             ax_carb.set_ylim(0, 1.05)
             ax_carb.grid(True, alpha=0.3)
@@ -217,19 +242,32 @@ class TrainingLogger:
             if total > 0:
                 frac = counts / total
                 ax_twin.bar(
-                    t_vals, frac, width=0.8, alpha=0.3, color="gray",
-                    align="center", label="t sampled",
+                    t_vals,
+                    frac,
+                    width=0.8,
+                    alpha=0.3,
+                    color="gray",
+                    align="center",
+                    label="t sampled",
                 )
                 ax_twin.set_ylabel("Fraction of samples (t)", color="gray", fontsize=9)
                 ax_twin.tick_params(axis="y", labelcolor="gray", labelsize=8)
                 ax_twin.set_ylim(0, None)
         ax.plot(
-            t_vals, train_vals, label="Train", marker="o", markersize=3,
+            t_vals,
+            train_vals,
+            label="Train",
+            marker="o",
+            markersize=3,
         )
         if per_t_val_loss is not None and len(per_t_val_loss) == len(per_t_loss):
             val_vals = per_t_val_loss.cpu().numpy()
             ax.plot(
-                t_vals, val_vals, label="Val", marker="s", markersize=3,
+                t_vals,
+                val_vals,
+                label="Val",
+                marker="s",
+                markersize=3,
             )
         ax.set_xlabel("Timestep t")
         ax.set_ylabel("Avg loss")
@@ -253,9 +291,7 @@ class TrainingLogger:
         n_plots = sum(x is not None for x in (per_t_carb, train_per_t_carb))
         if n_plots == 0:
             return
-        fig, axes = plt.subplots(
-            1, 2, figsize=(10, 4), sharex=True, sharey=True
-        )
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharex=True, sharey=True)
         for ax, data, kind in zip(
             axes,
             (per_t_carb, train_per_t_carb),
@@ -292,13 +328,37 @@ class TrainingLogger:
             p = data.precision.cpu().numpy()
             r = data.recall.cpu().numpy()
             f = data.f1.cpu().numpy()
-            ax.plot(t_vals, p, label="Precision", marker="o", markersize=3, color="C0", zorder=10)
-            ax.plot(t_vals, r, label="Recall", marker="s", markersize=3, color="C1", zorder=10)
-            ax.plot(t_vals, f, label="F1", marker="^", markersize=3, color="C2", zorder=10)
+            ax.plot(
+                t_vals,
+                p,
+                label="Precision",
+                marker="o",
+                markersize=3,
+                color="C0",
+                zorder=10,
+            )
+            ax.plot(
+                t_vals,
+                r,
+                label="Recall",
+                marker="s",
+                markersize=3,
+                color="C1",
+                zorder=10,
+            )
+            ax.plot(
+                t_vals, f, label="F1", marker="^", markersize=3, color="C2", zorder=10
+            )
             if data.ratio_masked is not None:
                 rm = data.ratio_masked.cpu().numpy()
                 ax.plot(
-                    t_vals, rm, label="Ratio masked", marker="d", markersize=3, color="C3", zorder=10,
+                    t_vals,
+                    rm,
+                    label="Ratio masked",
+                    marker="d",
+                    markersize=3,
+                    color="C3",
+                    zorder=10,
                 )
             ax.set_xlabel("Timestep t")
             ax.set_ylabel("Score")
@@ -319,8 +379,11 @@ def _plot_cols(ax, df, epochs, cols: list[tuple[str, str]]):
         valid = df[col].notna()
         if valid.any():
             ax.plot(
-                df.loc[valid, "epoch"], df.loc[valid, col],
-                label=label, marker="o", markersize=3,
+                df.loc[valid, "epoch"],
+                df.loc[valid, col],
+                label=label,
+                marker="o",
+                markersize=3,
             )
     if ax.get_legend_handles_labels()[1]:
         ax.legend(fontsize=7)

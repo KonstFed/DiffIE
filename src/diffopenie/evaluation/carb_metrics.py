@@ -26,6 +26,7 @@ from sklearn.metrics import auc as sk_auc
 
 # ── Data types ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Extraction:
     """A single OIE extraction: predicate + arguments + confidence."""
@@ -54,9 +55,12 @@ class Extraction:
 # ── Sentence normalization (matches CaRB) ───────────────────────────────────
 
 _PTB_ESCAPES = [
-    ("(", "-LRB-"), (")", "-RRB-"),
-    ("[", "-LSB-"), ("]", "-RSB-"),
-    ("{", "-LCB-"), ("}", "-RCB-"),
+    ("(", "-LRB-"),
+    (")", "-RRB-"),
+    ("[", "-LSB-"),
+    ("]", "-RSB-"),
+    ("{", "-LCB-"),
+    ("}", "-RCB-"),
 ]
 _PUNCT_RE = re.compile("[%s]" % re.escape(string.punctuation))
 
@@ -87,9 +91,7 @@ def _word_match_score(
     return matching, len(gold_words), len(pred_words)
 
 
-def _lenient_tuple_match(
-    gold: Extraction, pred: Extraction
-) -> tuple[float, float]:
+def _lenient_tuple_match(gold: Extraction, pred: Extraction) -> tuple[float, float]:
     """
     Lenient tuple match: word-level overlap returning (precision, recall).
     Handles forms-of-be matching in predicates.
@@ -157,9 +159,7 @@ def _binarize_extraction(ex: Extraction) -> Extraction:
     return ex
 
 
-def binary_lenient_match(
-    gold: Extraction, pred: Extraction
-) -> tuple[float, float]:
+def binary_lenient_match(gold: Extraction, pred: Extraction) -> tuple[float, float]:
     """
     Default CaRB matching: binarize then lenient tuple match.
     For "said"-type predicates, also try reversed argument order.
@@ -243,11 +243,9 @@ def evaluate(
     pred_norm = {_normalize_key(k): v for k, v in predicted.items()}
 
     # Collect all confidence thresholds
-    conf_thresholds = sorted({
-        ex.confidence
-        for exs in pred_norm.values()
-        for ex in exs
-    })
+    conf_thresholds = sorted(
+        {ex.confidence for exs in pred_norm.values() for ex in exs}
+    )
 
     if not conf_thresholds:
         return CarbResult(auc=0.0, precision=0.0, recall=0.0, f1=0.0)
@@ -262,10 +260,7 @@ def evaluate(
         pred_exs = pred_norm.get(sent, [])
 
         # Build score matrix
-        scores = [
-            [match_fn(g, p_ex) for p_ex in pred_exs]
-            for g in gold_exs
-        ]
+        scores = [[match_fn(g, p_ex) for p_ex in pred_exs] for g in gold_exs]
 
         # Process by ascending confidence threshold within this sentence
         sent_confs = sorted({ex.confidence for ex in pred_exs})
@@ -273,16 +268,12 @@ def evaluate(
 
         for conf in sent_confs:
             c = conf_thresholds.index(conf)
-            ext_indices = [
-                j for j, ex in enumerate(pred_exs) if ex.confidence >= conf
-            ]
+            ext_indices = [j for j, ex in enumerate(pred_exs) if ex.confidence >= conf]
 
             # Recall: sum of max recall per gold extraction
             recall_num = 0.0
             for row in scores:
-                max_rec = max(
-                    (row[j][1] for j in ext_indices), default=0.0
-                )
+                max_rec = max((row[j][1] for j in ext_indices), default=0.0)
                 recall_num += max_rec
 
             # Precision: greedy match maximizing precision

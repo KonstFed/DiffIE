@@ -100,20 +100,30 @@ class TripletMetrics(Metric):
         self.num_classes = num_classes
         self.mask_state_id = mask_state_id
         self.add_state(
-            "tp", default=torch.zeros(num_classes, dtype=torch.long), dist_reduce_fx="sum"
+            "tp",
+            default=torch.zeros(num_classes, dtype=torch.long),
+            dist_reduce_fx="sum",
         )
         self.add_state(
-            "fp", default=torch.zeros(num_classes, dtype=torch.long), dist_reduce_fx="sum"
+            "fp",
+            default=torch.zeros(num_classes, dtype=torch.long),
+            dist_reduce_fx="sum",
         )
         self.add_state(
-            "fn", default=torch.zeros(num_classes, dtype=torch.long), dist_reduce_fx="sum"
+            "fn",
+            default=torch.zeros(num_classes, dtype=torch.long),
+            dist_reduce_fx="sum",
         )
         if mask_state_id is not None:
             self.add_state(
-                "masked_count", default=torch.tensor(0, dtype=torch.long), dist_reduce_fx="sum"
+                "masked_count",
+                default=torch.tensor(0, dtype=torch.long),
+                dist_reduce_fx="sum",
             )
             self.add_state(
-                "valid_count", default=torch.tensor(0, dtype=torch.long), dist_reduce_fx="sum"
+                "valid_count",
+                default=torch.tensor(0, dtype=torch.long),
+                dist_reduce_fx="sum",
             )
 
     def update(
@@ -156,8 +166,12 @@ class TripletMetrics(Metric):
             v = self.valid_count.item()
             ratio_masked = self.masked_count.item() / max(v, 1)
         return MetricsResult(
-            precision=p, recall=r, f1=f,
-            class_precision=per_p, class_recall=per_r, class_f1=per_f,
+            precision=p,
+            recall=r,
+            f1=f,
+            class_precision=per_p,
+            class_recall=per_r,
+            class_f1=per_f,
             ratio_masked=ratio_masked,
         )
 
@@ -170,11 +184,11 @@ class PerTimestepLoss(Metric):
     def __init__(self, num_steps: int):
         super().__init__()
         self.num_steps = num_steps
+        self.add_state("loss_sum", default=torch.zeros(num_steps), dist_reduce_fx="sum")
         self.add_state(
-            "loss_sum", default=torch.zeros(num_steps), dist_reduce_fx="sum"
-        )
-        self.add_state(
-            "count", default=torch.zeros(num_steps, dtype=torch.long), dist_reduce_fx="sum"
+            "count",
+            default=torch.zeros(num_steps, dtype=torch.long),
+            dist_reduce_fx="sum",
         )
 
     def update(self, per_sample_loss: torch.Tensor, timesteps: torch.Tensor):
@@ -202,7 +216,9 @@ class PerTimestepMetricsResult:
     precision: torch.Tensor  # [T]
     recall: torch.Tensor  # [T]
     f1: torch.Tensor  # [T]
-    ratio_masked: torch.Tensor | None = None  # [T], fraction of valid tokens in mask state
+    ratio_masked: torch.Tensor | None = (
+        None  # [T], fraction of valid tokens in mask state
+    )
     # Per-sequence trajectories [N, T] for distribution-over-t plots
     per_sequence_precision: torch.Tensor | None = None
     per_sequence_recall: torch.Tensor | None = None

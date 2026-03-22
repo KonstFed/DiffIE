@@ -8,9 +8,12 @@ from pydantic import BaseModel, ConfigDict
 
 class BaseDenoiser(ABC):
     @abstractmethod
-    def forward(self, x_t: torch.FloatTensor, t: torch.LongTensor, condition: Any) -> torch.FloatTensor:
+    def forward(
+        self, x_t: torch.FloatTensor, t: torch.LongTensor, condition: Any
+    ) -> torch.FloatTensor:
         """Forward pass of the denoiser."""
         pass
+
 
 class LinearScheduler(nn.Module):
     """
