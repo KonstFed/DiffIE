@@ -1,9 +1,15 @@
 import argparse
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 from tqdm import tqdm
 
 from diffopenie.evaluation.carb_metrics import (
+    Extraction,
+    _normalize_key,
+    binary_lenient_match,
     evaluate,
     load_gold_file,
     load_predicted_file,
@@ -79,6 +85,80 @@ def process_sentences(
     return results
 
 
+@torch.no_grad()
+def oracle_recall_curve(
+    model: DiscreteModel,
+    sentences: list[str],
+    gold: dict[str, list[Extraction]],
+    max_n: int = 128,
+    output_path: Path | None = None,
+):
+    """Sample max_n times per sentence, then compute oracle recall at n=1..max_n."""
+    gold_norm = {_normalize_key(k): v for k, v in gold.items()}
+    model.eval()
+
+    # Sample max_n triplets per sentence, keyed by normalized sentence
+    pred_norm: dict[str, list[Extraction]] = {}
+    for sent in tqdm(sentences, desc="Sampling"):
+        words = sent.split()
+        triplets = model.get_triplets([words], n=max_n)
+        exs = []
+        for sub_span, obj_span, pred_span in triplets:
+            subj = extract_span_text(words, sub_span)
+            obj_ = extract_span_text(words, obj_span)
+            pred = extract_span_text(words, pred_span)
+            if subj and obj_ and pred:
+                exs.append(Extraction(pred=pred, args=[subj, obj_]))
+        pred_norm[_normalize_key(sent)] = exs
+
+    # Incremental oracle recall: track running max per gold extraction
+    # For each new prediction, update the max and emit recall at that n
+    total_gold = sum(len(v) for v in gold_norm.values())
+    max_preds = max(len(v) for v in pred_norm.values()) if pred_norm else 0
+    # running_max[sent_key][g_idx] = best recall seen so far
+    running_max: dict[str, list[float]] = {
+        k: [0.0] * len(golds) for k, golds in gold_norm.items()
+    }
+    # recall_at_n[i] = oracle recall when using i+1 predictions
+    recall_at_n = np.zeros(max_preds)
+    cumsum = 0.0
+    for i in range(max_preds):
+        for sent_key, gold_exs in gold_norm.items():
+            preds = pred_norm.get(sent_key, [])
+            if i >= len(preds):
+                continue
+            p_ex = preds[i]
+            for g_idx, g in enumerate(gold_exs):
+                score = binary_lenient_match(g, p_ex)[1]
+                old = running_max[sent_key][g_idx]
+                if score > old:
+                    cumsum += score - old
+                    running_max[sent_key][g_idx] = score
+        recall_at_n[i] = cumsum / total_gold if total_gold > 0 else 0.0
+
+    ns = list(range(1, max_preds + 1))
+    recalls = [float(recall_at_n[i]) for i in range(max_preds)]
+
+    # Print
+    print("\nOracle Recall Curve:")
+    for n, r in zip(ns, recalls):
+        print(f"  n={n:>4d}  oracle_recall={r:.3f}")
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(ns, recalls, marker="o", markersize=4)
+    ax.set_xlabel("Number of samples (n)")
+    ax.set_ylabel("Oracle Recall")
+    ax.set_title("Oracle Recall vs Number of Samples")
+    ax.set_ylim(0, 1.05)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    save_to = output_path or Path("oracle_recall_curve.png")
+    plt.savefig(save_to, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"\nPlot saved to {save_to}")
+
+
 def main():
     argparser = argparse.ArgumentParser(
         description="Evaluate model on CARB benchmark and save predictions"
@@ -108,7 +188,19 @@ def main():
         "--gold",
         type=Path,
         default=None,
-        help="Path to CaRB gold TSV file; if provided, in-house metrics are printed after evaluation",
+        help="Path to CaRB gold TSV file; if provided, "
+        "in-house metrics are printed after evaluation",
+    )
+    argparser.add_argument(
+        "--oracle-recall-curve",
+        action="store_true",
+        help="Plot oracle recall vs number of samples and exit",
+    )
+    argparser.add_argument(
+        "--max-n",
+        type=int,
+        default=128,
+        help="Max samples per sentence for oracle recall curve",
     )
     args = argparser.parse_args()
 
@@ -122,6 +214,22 @@ def main():
     print(f"Reading sentences from {args.input_sentences}...")
     with open(args.input_sentences, "r", encoding="utf-8") as f:
         sentences = [line.strip() for line in f if line.strip()]
+
+    if args.oracle_recall_curve:
+        if not args.gold:
+            print("ERROR: --gold is required for --oracle-recall-curve")
+            return
+        gold = load_gold_file(str(args.gold))
+        plot_path = args.output_dir / "oracle_recall_curve.png"
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        oracle_recall_curve(
+            model,
+            sentences,
+            gold,
+            max_n=args.max_n,
+            output_path=plot_path,
+        )
+        return
 
     print(f"Processing {len(sentences)} sentences")
 
