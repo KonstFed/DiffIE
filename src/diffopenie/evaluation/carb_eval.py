@@ -140,9 +140,7 @@ def oracle_recall_curve(
     recalls = [float(recall_at_n[i]) for i in range(max_preds)]
 
     # Print
-    print("\nOracle Recall Curve:")
-    for n, r in zip(ns, recalls):
-        print(f"  n={n:>4d}  oracle_recall={r:.3f}")
+    print("\nOracle Recall", recalls[-1])
 
     # Plot
     fig, ax = plt.subplots(figsize=(8, 5))
