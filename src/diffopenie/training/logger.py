@@ -117,7 +117,8 @@ class TrainingLogger:
                 f"AUC={carb_result.auc:.3f}  "
                 f"P={carb_result.precision:.3f}  "
                 f"R={carb_result.recall:.3f}  "
-                f"F1={carb_result.f1:.3f}{R}"
+                f"F1={carb_result.f1:.3f}  "
+                f"OracleR={carb_result.oracle_recall:.3f}{R}"
             )
         # Support both old 'best_f1' and new 'new_best' parameter names
         _best = new_best if new_best is not None else best_f1
@@ -205,6 +206,7 @@ class TrainingLogger:
                     ("carb_precision", "P"),
                     ("carb_recall", "R"),
                     ("carb_f1", "F1"),
+                    ("carb_oracle_recall", "Oracle R"),
                 ],
             )
             ax_carb.set_title("CaRB benchmark (dev)")

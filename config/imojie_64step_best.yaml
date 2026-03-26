@@ -1,13 +1,16 @@
-# it is actually was trained mostly on imojie
+# MDLM (Masked Diffusion Language Model) training config.
+# Same data/model/trainer as D3PM but uses MDLM concrete-score reverse sampling
+# instead of D3PM transition matrices. Mask-absorbing only.
+# alpha_schedule controls survival probability α(t): cosine | linear | log_linear | mi
+
 trainer:
-  ema_decay: 0.9999
   type: "discrete_trainer"
-  device: "mps"
-  learning_rate: 5e-5
+  device: null
+  learning_rate: 2e-4
   encoder_lr: 5e-5
   weight_decay: 0.01
   label_smoothing: 0.0
-  warmup_steps: 0
+  warmup_steps: 500
   background_drop_prob: 0.0
   carb_gold_path: "../CaRB/data/gold/dev.tsv"
   carb_sentences_path: "../CaRB/data/dev.txt"
@@ -20,7 +23,7 @@ model:
   scheduler:
     type: mdlm
     num_states: 5
-    num_steps: 8
+    num_steps: 64
     mask_state_id: 4
     device: "cpu"
     dtype: "float32"
@@ -46,7 +49,7 @@ model:
     dropout: 0.1
     fuse: "concat"
     time_embed: "learnable"
-    num_timesteps: 8
+    num_timesteps: 64
   temperature: 1.0
   topk: null
   argmax: false
@@ -55,24 +58,24 @@ model:
   remask_threshold_high: 0.9
   extractor:
     type: meanshift
-    n_samples: 1024
+    n_samples: 64
     bandwidth: null # or a float like 2.0
     use_span_embs: true
-    pca_components: 16
+    # pca_components: 16
 
 data:
   train_dataset:
     type: "cached"
     datasets:
-      # - type: "imojie"
-      #   path: "dataset/data/train/4cr_qpbo_extractions.tsv"
-      #   tokenizer_name: "bert-base-uncased"
-      #   min_success_pct: 100.0
-      - type: "sequence"
-        split: "train"
+      - type: "imojie"
+        path: "dataset/data/train/4cr_qpbo_extractions.tsv"
         tokenizer_name: "bert-base-uncased"
-        filter_spans: true
-        drop_duplicate_sentences: true
+        min_success_pct: 100.0
+      # - type: "sequence"
+      #   split: "train"
+      #   tokenizer_name: "bert-base-uncased"
+      #   filter_spans: true
+      #   drop_duplicate_sentences: true
     encoder: null
     batch_size: 32
   val_dataset:
@@ -92,9 +95,8 @@ data:
 
 num_epochs: 2000
 log_interval: 100
-save_path: checkpoints_mdlm
+save_path: checkpoints_pretrain_imojie_mdlm
 save_interval: 3
 val_full_interval: 3
 val_metrics_on_train: true
 train_val_batches: 10
-model_weights: "checkpoints_pretrain_imojie_mdlm/checkpoint_best.pt"

@@ -167,10 +167,11 @@ def main():
         gold = load_gold_file(str(args.gold))
         predicted = load_predicted_file(str(tsv_path))
         result = evaluate(gold, predicted)
-        print(f"  AUC:       {result.auc:.3f}")
-        print(f"  Precision: {result.precision:.3f}")
-        print(f"  Recall:    {result.recall:.3f}")
-        print(f"  F1:        {result.f1:.3f}")
+        print(f"  AUC:          {result.auc:.3f}")
+        print(f"  Precision:    {result.precision:.3f}")
+        print(f"  Recall:       {result.recall:.3f}")
+        print(f"  F1:           {result.f1:.3f}")
+        print(f"  Oracle Recall:{result.oracle_recall:.3f}")
 
 
 if __name__ == "__main__":

@@ -215,6 +215,7 @@ class CarbResult:
     precision: float
     recall: float
     f1: float
+    oracle_recall: float = 0.0
 
     def to_dict(self, prefix: str = "") -> dict[str, float]:
         return {
@@ -222,6 +223,7 @@ class CarbResult:
             f"{prefix}carb_precision": self.precision,
             f"{prefix}carb_recall": self.recall,
             f"{prefix}carb_f1": self.f1,
+            f"{prefix}carb_oracle_recall": self.oracle_recall,
         }
 
 
@@ -249,6 +251,16 @@ def evaluate(
 
     if not conf_thresholds:
         return CarbResult(auc=0.0, precision=0.0, recall=0.0, f1=0.0)
+
+    # Oracle recall: for each gold extraction, best recall across ALL predictions
+    oracle_rec_num, oracle_rec_den = 0.0, 0
+    for sent, gold_exs in gold_norm.items():
+        pred_exs = pred_norm.get(sent, [])
+        for g in gold_exs:
+            best = max((match_fn(g, p_ex)[1] for p_ex in pred_exs), default=0.0)
+            oracle_rec_num += best
+        oracle_rec_den += len(gold_exs)
+    oracle_recall = oracle_rec_num / oracle_rec_den if oracle_rec_den > 0 else 0.0
 
     num_conf = len(conf_thresholds)
     p = np.zeros(num_conf)
@@ -338,4 +350,5 @@ def evaluate(
         precision=round(opt_p, 3),
         recall=round(opt_r, 3),
         f1=round(opt_f1, 3),
+        oracle_recall=round(oracle_recall, 3),
     )
