@@ -54,14 +54,14 @@ model:
   remask_threshold_high: 0.9
   # extractor:
   #   type: meanshift
-  #   n_samples: 64
+  #   n_samples: 1024
   #   bandwidth: null # or a float like 2.0
-  #   use_span_embs: true
-  #   # pca_components: 16
+  #   use_span_embs: false
+  # pca_components: 16
   extractor:
     type: frequency
-    k: 1
-    topk: 1
+    k: 1024
+    topk: 4
 
 data:
   train_dataset:
@@ -101,3 +101,4 @@ val_full_interval: 3
 val_metrics_on_train: true
 train_val_batches: 10
 model_weights: "checkpoints_pretrain_imojie_mdlm/checkpoint_best.pt"
+seed: 3803

@@ -1,9 +1,11 @@
 """CLI entry point for training discrete diffusion OpenIE model."""
 
 import argparse
+import random
 from pathlib import Path
 from typing import Annotated, Optional
 
+import numpy as np
 import torch
 from pydantic import BaseModel, ConfigDict, Field
 from torch.utils.data import DataLoader
@@ -58,6 +60,7 @@ class DataConfig(BaseModel):
 class TrainingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    seed: Optional[int] = None  # random seed; None = no seeding
     trainer: TrainerConfig
     model: DiscreteModelConfig
     data: DataConfig
@@ -141,6 +144,13 @@ def main():
 
     config = load_config(TrainingConfig, args.config_path)
     log_path = args.log_path or f"{Path(args.config_path).stem}.csv"
+
+    if config.seed is not None:
+        random.seed(config.seed)
+        np.random.seed(config.seed)
+        torch.manual_seed(config.seed)
+        torch.cuda.manual_seed_all(config.seed)
+        print(f"Seed: {config.seed}")
 
     _model, trainer, train_dl, val_dl = create_training_components(config)
 
