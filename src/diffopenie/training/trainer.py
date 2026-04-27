@@ -62,6 +62,7 @@ class Trainer:
         warmup_steps: int = 0,
         total_steps: int | None = None,
         ema_decay: float = 0.0,
+        use_amp: bool = False,
     ):
         self.model = model.to(device)
         self.model.scheduler.to(device)
@@ -69,6 +70,10 @@ class Trainer:
         self.max_grad_norm = max_grad_norm
         self.background_drop_prob = background_drop_prob
         self.global_step = 0
+
+        self.use_amp = use_amp
+        self._amp_device_type = torch.device(device).type
+        self._amp_dtype = torch.bfloat16
 
         # EMA shadow weights
         self.ema_decay = ema_decay
@@ -88,17 +93,24 @@ class Trainer:
             label_smoothing=label_smoothing,
         )
 
-        # Separate parameter groups for encoder vs denoiser
-        encoder_params = list(model.encoder.parameters())
-        encoder_ids = {id(p) for p in encoder_params}
-        denoiser_params = [p for p in model.parameters() if id(p) not in encoder_ids]
+        # Separate parameter groups for encoder vs denoiser; skip frozen params
+        # so AdamW state isn't allocated for layers that won't update.
+        encoder_params = [p for p in model.encoder.parameters() if p.requires_grad]
+        encoder_ids = {id(p) for p in model.encoder.parameters()}
+        denoiser_params = [
+            p
+            for p in model.parameters()
+            if id(p) not in encoder_ids and p.requires_grad
+        ]
         enc_lr = encoder_lr if encoder_lr is not None else learning_rate
 
+        param_groups = []
+        if encoder_params:
+            param_groups.append({"params": encoder_params, "lr": enc_lr})
+        if denoiser_params:
+            param_groups.append({"params": denoiser_params, "lr": learning_rate})
         self.optimizer = torch.optim.AdamW(
-            [
-                {"params": encoder_params, "lr": enc_lr},
-                {"params": denoiser_params, "lr": learning_rate},
-            ],
+            param_groups,
             weight_decay=weight_decay,
         )
 
@@ -157,47 +169,43 @@ class Trainer:
         token_ids, attention_mask, labels = self._to_device(batch)
         B, L = token_ids.shape
 
-        # # DEBUG: convert token_ids to tokens (first sample only) and print S/O/R with colour
-        # tokenizer = self.model.encoder.tokenizer
-        # first_ids = token_ids[0].cpu().tolist()
-        # tokens = tokenizer.convert_ids_to_tokens(first_ids)
-        # print("[DEBUG] token_ids[0] -> tokens:", tokens)
-        # first_labels = labels[0].cpu().tolist()
-        # subject_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["S"]]
-        # object_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["O"]]
-        # relation_ind = [i for i, lb in enumerate(first_labels) if lb == SEQ_STR2INT["R"]]
-        # print("[DEBUG] subject/object/relation tokens:")
-        # hprint(tokens, subject_ind, object_ind, relation_ind, legend=True)
+        with torch.autocast(
+            device_type=self._amp_device_type,
+            dtype=self._amp_dtype,
+            enabled=self.use_amp,
+        ):
+            token_emb = self.model.encode_tokens(token_ids, attention_mask)
+            t = self.model.scheduler.sample_t(B)
+            x_t = self.model.noise(labels, t)
+            logits = self.model.denoiser(x_t, t, token_emb, attention_mask)
 
-        token_emb = self.model.encode_tokens(token_ids, attention_mask)
-        t = self.model.scheduler.sample_t(B)
-        x_t = self.model.noise(labels, t)
-        logits = self.model.denoiser(x_t, t, token_emb, attention_mask)
+            target = labels.clone()
+            target[attention_mask == 0] = IGNORE_INDEX
+            if self.model.scheduler.kernel == "mask_absorbing":
+                target[x_t != self.model.scheduler.mask_state_id] = IGNORE_INDEX
+
+            if self.background_drop_prob > 0 and self.model.training:
+                bg_and_active = (labels == SEQ_STR2INT["B"]) & (
+                    target != IGNORE_INDEX
+                )
+                drop = bg_and_active & (
+                    torch.rand_like(target, dtype=torch.float32)
+                    < self.background_drop_prob
+                )
+                target[drop] = IGNORE_INDEX
+
+            per_token = self._loss_fn(
+                logits.reshape(-1, logits.size(-1)),
+                target.reshape(-1),
+            ).reshape(B, L)
+            valid = (target != IGNORE_INDEX).float()
+            per_sample_loss = (per_token * valid).sum(1) / valid.sum(1).clamp(min=1)
+            if hasattr(self.model.scheduler, "weight"):
+                w_t = self.model.scheduler.weight(t)
+                per_sample_loss = per_sample_loss * w_t
+            loss = per_sample_loss.mean()
+
         predictions = logits.argmax(dim=-1)
-
-        target = labels.clone()
-        target[attention_mask == 0] = IGNORE_INDEX
-        if self.model.scheduler.kernel == "mask_absorbing":
-            target[x_t != self.model.scheduler.mask_state_id] = IGNORE_INDEX
-
-        if self.background_drop_prob > 0 and self.model.training:
-            bg_and_active = (labels == SEQ_STR2INT["B"]) & (target != IGNORE_INDEX)
-            drop = bg_and_active & (
-                torch.rand_like(target, dtype=torch.float32) < self.background_drop_prob
-            )
-            target[drop] = IGNORE_INDEX
-
-        per_token = self._loss_fn(
-            logits.reshape(-1, logits.size(-1)),
-            target.reshape(-1),
-        ).reshape(B, L)
-        valid = (target != IGNORE_INDEX).float()
-        per_sample_loss = (per_token * valid).sum(1) / valid.sum(1).clamp(min=1)
-        if hasattr(self.model.scheduler, "weight"):
-            w_t = self.model.scheduler.weight(t)  # (B,)
-            per_sample_loss = per_sample_loss * w_t
-        loss = per_sample_loss.mean()
-
         metric_mask = attention_mask.clone()
         metric_mask[target == IGNORE_INDEX] = 0
 
@@ -551,6 +559,7 @@ class TrainerConfig(BaseModel):
     label_smoothing: float = 0.0
     warmup_steps: int = 0
     ema_decay: float = 0.0  # 0 = disabled; typical values: 0.999, 0.9999
+    use_amp: bool = False  # bf16 autocast around forward+loss; saves ~30-40% mem
 
     # CaRB benchmark validation
     carb_gold_path: str | None = None  # path to CaRB gold/*.tsv
@@ -575,4 +584,5 @@ class TrainerConfig(BaseModel):
             warmup_steps=self.warmup_steps,
             total_steps=total_steps,
             ema_decay=self.ema_decay,
+            use_amp=self.use_amp,
         )

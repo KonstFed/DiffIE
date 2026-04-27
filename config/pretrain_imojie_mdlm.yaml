@@ -12,6 +12,7 @@ trainer:
   label_smoothing: 0.0
   warmup_steps: 500
   background_drop_prob: 0.0
+  use_amp: true
   carb_gold_path: "../CaRB/data/gold/dev.tsv"
   carb_sentences_path: "../CaRB/data/dev.txt"
 
@@ -19,6 +20,7 @@ model:
   encoder:
     model_name: "bert-base-uncased"
     freeze: false
+    num_frozen_layers: 4
   scheduler:
     type: mdlm
     num_states: 5
