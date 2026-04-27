@@ -324,7 +324,7 @@ def main():
         encoding = tokenizer(
             words,
             is_split_into_words=True,
-            add_special_tokens=False,
+            add_special_tokens=True,
         )
         toks = tokenizer.convert_ids_to_tokens(encoding["input_ids"])
         print_header(f"Custom: {args.sentence}")
@@ -367,7 +367,7 @@ def main():
         encoding = tokenizer(
             words,
             is_split_into_words=True,
-            add_special_tokens=False,
+            add_special_tokens=True,
         )
         toks = tokenizer.convert_ids_to_tokens(encoding["input_ids"])
 

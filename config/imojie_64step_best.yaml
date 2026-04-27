@@ -19,7 +19,6 @@ model:
   encoder:
     model_name: "bert-base-uncased"
     freeze: false
-    add_special_tokens: false
   scheduler:
     type: mdlm
     num_states: 5

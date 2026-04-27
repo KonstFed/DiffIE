@@ -162,7 +162,7 @@ class DiscreteModel(nn.Module):
         encodings = self.encoder.tokenizer(
             words,
             is_split_into_words=True,
-            add_special_tokens=False,
+            add_special_tokens=True,
             padding=True,
             return_tensors="pt",
         )

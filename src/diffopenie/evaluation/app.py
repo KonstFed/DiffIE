@@ -408,7 +408,7 @@ def page_debug(model, config, tokenizer, dataset, split, index,
         if dataset == "custom":
             assert custom_sentence, "Enter a sentence."
             words = custom_sentence.split()
-            enc = tokenizer(words, is_split_into_words=True, add_special_tokens=False)
+            enc = tokenizer(words, is_split_into_words=True, add_special_tokens=True)
             token_ids = enc["input_ids"]
             tokens = tokenizer.convert_ids_to_tokens(token_ids)
 
@@ -426,7 +426,7 @@ def page_debug(model, config, tokenizer, dataset, split, index,
             sentence = sentences[index]
             words = sentence.split()
             all_gt_carb = gold_map.get(sentence, []) or None
-            enc = tokenizer(words, is_split_into_words=True, add_special_tokens=False)
+            enc = tokenizer(words, is_split_into_words=True, add_special_tokens=True)
             token_ids = enc["input_ids"]
             tokens = tokenizer.convert_ids_to_tokens(token_ids)
 
@@ -595,7 +595,7 @@ def page_entropy(model, config, tokenizer, dataset, split, index,
         if dataset == "custom":
             assert custom_sentence, "Enter a sentence."
             words = custom_sentence.split()
-            enc = tokenizer(words, is_split_into_words=True, add_special_tokens=False)
+            enc = tokenizer(words, is_split_into_words=True, add_special_tokens=True)
             token_ids = enc["input_ids"]
             tokens = tokenizer.convert_ids_to_tokens(token_ids)
 
@@ -611,7 +611,7 @@ def page_entropy(model, config, tokenizer, dataset, split, index,
                 carb_path / "data" / "gold" / f"{sp}.tsv",
             )
             words = sentences[index].split()
-            enc = tokenizer(words, is_split_into_words=True, add_special_tokens=False)
+            enc = tokenizer(words, is_split_into_words=True, add_special_tokens=True)
             token_ids = enc["input_ids"]
             tokens = tokenizer.convert_ids_to_tokens(token_ids)
 

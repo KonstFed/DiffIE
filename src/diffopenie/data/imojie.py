@@ -179,7 +179,7 @@ class SequenceImojieDataset(Dataset):
         ]
 
         encoding = self.tokenizer(
-            words, is_split_into_words=True, add_special_tokens=False
+            words, is_split_into_words=True, add_special_tokens=True
         )
         tokens = self.tokenizer.convert_ids_to_tokens(encoding["input_ids"])
         word_ids = encoding.word_ids()

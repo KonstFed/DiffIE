@@ -20,7 +20,6 @@ model:
   encoder:
     model_name: "bert-base-uncased"
     freeze: false # set true to freeze BERT; false to fine-tune alongside the denoiser
-    add_special_tokens: true
   # scheduler type: "d3pm" (transition matrices) or "mdlm" (concrete score, mask-absorbing only)
   scheduler:
     type: d3pm
