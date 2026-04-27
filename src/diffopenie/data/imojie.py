@@ -147,21 +147,23 @@ class SequenceImojieDataset(Dataset):
             self._filter_by_success(min_success_pct)
 
     def _filter_by_success(self, min_pct: float) -> None:
+        total = len(self._df)
         to_drop = []
-        for i in range(len(self._df)):
+        for i in range(total):
             row = self._df.iloc[i]
             _, _, pct = label_to_sequence_labels(
                 row["sentence"], row["label"]
             )
             if pct < min_pct:
                 to_drop.append(i)
+        dropped = len(to_drop)
+        purged_pct = (100.0 * dropped / total) if total else 0.0
+        print(
+            f"Imojie [{self.path}]: purged {dropped}/{total} rows "
+            f"({purged_pct:.2f}%) with alignment < {min_pct:.1f}%"
+        )
         if to_drop:
             self._df = self._df.drop(to_drop).reset_index(drop=True)
-            logger.info(
-                "Imojie: dropped %d rows with alignment < %.1f%%",
-                len(to_drop),
-                min_pct,
-            )
 
     def __len__(self) -> int:
         return len(self._df)

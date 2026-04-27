@@ -19,7 +19,7 @@ model:
   encoder:
     model_name: "bert-base-uncased"
     freeze: false
-    add_special_tokens: false
+    add_special_tokens: true
   scheduler:
     type: mdlm
     num_states: 5
@@ -44,7 +44,7 @@ model:
     num_states: 5
     model_dim: 512
     ctx_dim: 768
-    num_layers: 2
+    num_layers: 6
     num_heads: 8
     dropout: 0.1
     fuse: "concat"
