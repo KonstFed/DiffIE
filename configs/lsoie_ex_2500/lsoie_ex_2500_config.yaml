@@ -1,0 +1,79 @@
+# Variant of lsoie_ex_full_config.yaml restricted to 2500 source rows of
+# CycleOIE (~50% of the full filtered set, ~8266 fanned-out training items).
+# 12 epochs. Best checkpoint on CaRB dev is saved as weights.pt by the
+# orchestrator (src/diffopenie/evaluation/run_final_experiments.py).
+
+trainer:
+  type: "discrete_trainer"
+  device: null
+  learning_rate: 2e-4
+  encoder_lr: 5e-5
+  weight_decay: 0.01
+  label_smoothing: 0.0
+  warmup_steps: 500
+  background_drop_prob: 0.0
+  class_weights: [0.7, 1.0, 1.0, 1.0]
+  use_amp: true
+  carb_gold_path: "benchmarks/CaRB/data/gold/dev.tsv"
+  carb_sentences_path: "benchmarks/CaRB/data/dev.txt"
+
+model:
+  encoder:
+    model_name: "bert-base-uncased"
+    freeze: false
+    num_frozen_layers: 4
+  scheduler:
+    type: uniform
+    num_states: 5
+    num_steps: 16
+    device: "cpu"
+    dtype: "float32"
+    beta_schedule:
+      type: cosine
+      s: 0.002
+  denoiser:
+    type: self_attn
+    num_states: 5
+    model_dim: 512
+    ctx_dim: 768
+    num_layers: 6
+    num_heads: 8
+    dropout: 0.1
+    fuse: "concat"
+    time_embed: "learnable"
+    num_timesteps: 16
+  temperature: 1
+  topk: null
+  argmax: false
+  use_remasking: false
+  remask_threshold_low: 0.3
+  remask_threshold_high: 0.9
+  extractor:
+    type: lenient_frequency
+    k: 512
+    topk: 4
+    threshold: 0.9
+
+data:
+  train_dataset:
+    type: "cached"
+    datasets:
+      - type: "cycleoie"
+        path: "dataset/cycleoie/lsoie-g-examples.tsv"
+        tokenizer_name: "bert-base-uncased"
+        min_success_pct: 100.0
+        max_rows: 2500
+        max_rows_seed: 0
+    encoder: null
+    batch_size: 32
+  batch_size: 32
+  num_workers: 4
+  pad_token_id: 0
+
+num_epochs: 12
+log_interval: 100
+save_path: configs/lsoie_ex_2500
+save_interval: 100
+val_full_interval: 1
+val_metrics_on_train: true
+train_val_batches: 10

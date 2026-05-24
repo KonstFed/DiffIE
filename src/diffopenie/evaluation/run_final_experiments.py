@@ -1,0 +1,123 @@
+"""Run every paper experiment sequentially and stash best weights.
+
+For each config in ``configs/lsoie_ex_*/``:
+  1. invoke ``diffopenie.training.train_example`` as a subprocess so each run
+     gets a clean process / GPU state;
+  2. after the run completes, move ``checkpoint_best.pt`` from the run's
+     ``save_path`` to ``weights.pt`` next to the config.
+
+Usage::
+
+    uv run python -m diffopenie.evaluation.run_final_experiments
+    uv run python -m diffopenie.evaluation.run_final_experiments --only 50,250
+    uv run python -m diffopenie.evaluation.run_final_experiments --dry-run
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+CONFIGS = REPO_ROOT / "configs"
+
+
+@dataclass(frozen=True)
+class Experiment:
+    name: str
+    folder: Path
+    config: Path
+
+    @classmethod
+    def from_name(cls, name: str) -> "Experiment":
+        folder = CONFIGS / f"lsoie_ex_{name}"
+        config = folder / f"lsoie_ex_{name}_config.yaml"
+        return cls(name=name, folder=folder, config=config)
+
+
+# Data ablation (Table 2) + MDLM ablation (Table 3) + main results (Table 1).
+EXPERIMENTS: list[Experiment] = [
+    Experiment.from_name(n)
+    for n in (
+        "50",
+        "250",
+        "1250",
+        "2500",
+        "full",
+        "plus20k",
+        "plus_full",
+        "2500_mdlm",
+        "full_mdlm",
+    )
+]
+
+
+def _run_one(exp: Experiment, dry_run: bool) -> None:
+    if not exp.config.exists():
+        raise FileNotFoundError(f"Config not found: {exp.config}")
+
+    log_path = exp.folder / "train_log.csv"
+    cmd = [
+        sys.executable,
+        "-m",
+        "diffopenie.training.train_example",
+        str(exp.config),
+        "--log-path",
+        str(log_path),
+    ]
+    print(f"\n=== [{exp.name}] {' '.join(cmd)}", flush=True)
+    if dry_run:
+        return
+
+    # Run from repo root so relative paths in the YAML resolve correctly
+    # (e.g. dataset/cycleoie/..., benchmarks/CaRB/...).
+    subprocess.run(cmd, cwd=REPO_ROOT, check=True)
+
+    best = exp.folder / "checkpoint_best.pt"
+    target = exp.folder / "weights.pt"
+    if not best.exists():
+        raise FileNotFoundError(
+            f"[{exp.name}] training finished but {best} is missing — "
+            "no CaRB-best checkpoint was saved."
+        )
+    shutil.move(str(best), str(target))
+    print(f"[{exp.name}] moved {best.name} -> {target}", flush=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--only",
+        type=str,
+        default=None,
+        help="Comma-separated experiment names to run (e.g. 50,lsoie_20k).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the commands without executing them.",
+    )
+    args = parser.parse_args()
+
+    selected = EXPERIMENTS
+    if args.only:
+        wanted = {n.strip() for n in args.only.split(",") if n.strip()}
+        selected = [e for e in EXPERIMENTS if e.name in wanted]
+        unknown = wanted - {e.name for e in EXPERIMENTS}
+        if unknown:
+            raise SystemExit(f"Unknown experiment names: {sorted(unknown)}")
+
+    print(f"Running {len(selected)} experiment(s): "
+          f"{[e.name for e in selected]}")
+    for exp in selected:
+        _run_one(exp, dry_run=args.dry_run)
+
+    print("\nAll experiments finished.")
+
+
+if __name__ == "__main__":
+    main()

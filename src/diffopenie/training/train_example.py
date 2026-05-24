@@ -1,0 +1,199 @@
+"""CLI entry point for training discrete diffusion OpenIE model."""
+
+import argparse
+import random
+from pathlib import Path
+from typing import Annotated, Optional
+
+import numpy as np
+import torch
+from pydantic import BaseModel, ConfigDict, Field
+from torch.utils.data import DataLoader
+
+from diffopenie.data.collator import (
+    SequenceCollator,
+    SequenceGroupedCollator,
+    SpanCollator,
+)
+from diffopenie.data.dataset import (
+    CachedDatasetConfig,
+    SequenceLSOEIDatasetConfig,
+    SpanLSOEIDatasetConfig,
+)
+from diffopenie.data.cycleoie import CycleOIEDatasetConfig
+from diffopenie.data.imojie import (
+    GroupedImojieDatasetConfig,
+    SequenceImojieDatasetConfig,
+)
+from diffopenie.data.lsoie import GroupedSequenceLSOEIDatasetConfig
+from diffopenie.models.discrete.discrete_model import DiscreteModelConfig
+from diffopenie.training.trainer import Trainer, TrainerConfig
+from diffopenie.utils import load_config
+
+DatasetConfigUnion = Annotated[
+    SequenceLSOEIDatasetConfig
+    | SpanLSOEIDatasetConfig
+    | CachedDatasetConfig
+    | SequenceImojieDatasetConfig
+    | GroupedImojieDatasetConfig
+    | GroupedSequenceLSOEIDatasetConfig
+    | CycleOIEDatasetConfig,
+    Field(discriminator="type"),
+]
+
+
+class DataConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    train_dataset: DatasetConfigUnion | None = None
+    val_dataset: DatasetConfigUnion | None = None
+    dataset: DatasetConfigUnion | None = None  # legacy fallback
+    batch_size: int = 32
+    num_workers: int = 4
+    pad_token_id: int = 0
+
+    def get_train_config(self) -> DatasetConfigUnion:
+        if self.train_dataset is not None:
+            return self.train_dataset
+        if self.dataset is not None:
+            return self.dataset
+        raise ValueError("No train dataset configured")
+
+    def get_val_config(self) -> DatasetConfigUnion:
+        if self.val_dataset is not None:
+            return self.val_dataset
+        if self.dataset is not None:
+            return self.dataset
+        raise ValueError("No val dataset configured")
+
+
+class TrainingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seed: Optional[int] = 38  # default inference/training seed
+    trainer: TrainerConfig
+    model: DiscreteModelConfig
+    data: DataConfig
+
+    num_epochs: int = 10
+    log_interval: int = 100  # kept for YAML backward compat
+    save_path: Optional[str] = None
+    save_interval: int = 1
+    val_full_interval: int = 5
+    val_metrics_on_train: bool = False
+    train_val_batches: Optional[int] = None
+    model_weights: Optional[str] = (
+        None  # path to checkpoint for weight init (pretrain→finetune)
+    )
+    val_lsoie: bool = True  # token-overlap validation on LSOIE val split
+    val_carb: bool = True  # CaRB benchmark validation (needs trainer.carb_*)
+
+
+def _collator_for(cfg: DatasetConfigUnion, data: DataConfig):
+    dtype = cfg.datasets[0].type if cfg.type == "cached" else cfg.type
+    if dtype in ("sequence", "imojie", "cycleoie"):
+        return SequenceCollator(
+            pad_token_id=data.pad_token_id,
+            pad_tag_value=0,
+        )
+    if dtype in ("imojie_grouped", "sequence_grouped"):
+        return SequenceGroupedCollator(
+            pad_token_id=data.pad_token_id,
+            pad_tag_value=0,
+        )
+    if dtype == "span":
+        return SpanCollator(pad_token_id=data.pad_token_id)
+    raise ValueError(f"Unknown dataset type: {dtype}")
+
+
+def create_training_components(
+    config: TrainingConfig,
+) -> tuple[DiscreteModelConfig, Trainer, DataLoader, DataLoader]:
+    model = config.model.create()
+
+    train_cfg = config.data.get_train_config()
+    train_collator = _collator_for(train_cfg, config.data)
+
+    train_ds = train_cfg.create()
+    train_dl = DataLoader(
+        train_ds,
+        batch_size=config.data.batch_size,
+        shuffle=True,
+        num_workers=config.data.num_workers,
+        collate_fn=train_collator,
+    )
+
+    val_dl: DataLoader | None = None
+    if config.data.val_dataset is not None or config.data.dataset is not None:
+        val_cfg = config.data.get_val_config()
+        val_collator = _collator_for(val_cfg, config.data)
+        val_dl = DataLoader(
+            val_cfg.create(),
+            batch_size=config.data.batch_size,
+            shuffle=False,
+            num_workers=config.data.num_workers,
+            collate_fn=val_collator,
+        )
+
+    # Compute total training steps for LR scheduler
+    steps_per_epoch = len(train_dl)
+    total_steps = steps_per_epoch * config.num_epochs
+    trainer = config.trainer.create(model=model, total_steps=total_steps)
+
+    if config.model_weights is not None:
+        ckpt = torch.load(config.model_weights, map_location=trainer.device)
+        state = ckpt.get("model_state_dict", ckpt)
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        if missing:
+            print(f"[model_weights] missing keys: {missing}")
+        if unexpected:
+            print(f"[model_weights] unexpected keys: {unexpected}")
+        print(f"[model_weights] loaded from {config.model_weights}")
+
+    return model, trainer, train_dl, val_dl
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Train discrete diffusion OpenIE model",
+    )
+    parser.add_argument("config_path", type=str)
+    parser.add_argument("--log-path", type=str, default=None)
+    args = parser.parse_args()
+
+    config = load_config(TrainingConfig, args.config_path)
+    log_path = args.log_path or f"{Path(args.config_path).stem}.csv"
+
+    if config.seed is not None:
+        random.seed(config.seed)
+        np.random.seed(config.seed)
+        torch.manual_seed(config.seed)
+        torch.cuda.manual_seed_all(config.seed)
+        print(f"Seed: {config.seed}")
+
+    _model, trainer, train_dl, val_dl = create_training_components(config)
+
+    print(f"Config: {args.config_path}")
+    val_n = len(val_dl) if val_dl is not None else 0
+    print(f"Train: {len(train_dl)} batches, Val: {val_n} batches")
+
+    trainer.train(
+        train_dataloader=train_dl,
+        num_epochs=config.num_epochs,
+        save_path=config.save_path,
+        save_interval=config.save_interval,
+        val_dataloader=val_dl,
+        val_full_interval=config.val_full_interval,
+        val_metrics_on_train=config.val_metrics_on_train,
+        log_path=log_path,
+        train_val_batches=config.train_val_batches,
+        carb_gold_path=config.trainer.carb_gold_path,
+        carb_sentences_path=config.trainer.carb_sentences_path,
+        val_lsoie=config.val_lsoie,
+        val_carb=config.val_carb,
+    )
+    print("Training completed!")
+
+
+if __name__ == "__main__":
+    main()
