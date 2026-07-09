@@ -127,6 +127,7 @@ def _summarize(
     return {
         "repeat": repeat,
         "num_sentences": total_sentences,
+        "n_samples": k,
         "k": k,
         "total_model_seconds": model_seconds,
         "total_clustering_seconds": clustering_seconds,
@@ -160,6 +161,7 @@ def run_timing(
     warmup_sentences: list[str],
     repeats: int,
     validate: int,
+    ns: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     extractor = model.extractor
     if not isinstance(extractor, LenientFrequencyExtractor):
@@ -171,54 +173,71 @@ def run_timing(
     model.eval()
     device = model.device
 
-    for sentence in tqdm(warmup_sentences, desc="Warmup", leave=False):
-        words = sentence.split()
-        candidates = model.get_triplets([words], n=extractor.k)
-        _cluster_lenient_frequency(words, candidates, extractor)
+    # Sweep only the number of samples n (extractor.k). The output budget
+    # (extractor.topk) and threshold are left at the config values so the
+    # clustering/ranking is identical across the sweep and matches DiffIE.
+    if ns is None:
+        ns = [extractor.k]
+    orig_k = extractor.k
 
     rows: list[dict[str, Any]] = []
-    for repeat in range(1, repeats + 1):
-        if device.type == "cuda":
-            torch.cuda.reset_peak_memory_stats(device)
+    try:
+        for n in ns:
+            extractor.k = n  # controls both the sample count and the freq denominator
 
-        model_times: list[float] = []
-        clustering_times: list[float] = []
-        checked = 0
+            for sentence in tqdm(warmup_sentences, desc=f"Warmup n={n}", leave=False):
+                words = sentence.split()
+                candidates = model.get_triplets([words], n=n)
+                _cluster_lenient_frequency(words, candidates, extractor)
 
-        for sentence in tqdm(sentences, desc=f"Repeat {repeat}/{repeats}"):
-            words = sentence.split()
+            for repeat in range(1, repeats + 1):
+                if device.type == "cuda":
+                    torch.cuda.reset_peak_memory_stats(device)
 
-            _sync_if_needed(device)
-            model_start = time.perf_counter()
-            candidates = model.get_triplets([words], n=extractor.k)
-            _sync_if_needed(device)
-            model_times.append(time.perf_counter() - model_start)
+                model_times: list[float] = []
+                clustering_times: list[float] = []
+                checked = 0
 
-            cluster_start = time.perf_counter()
-            triplets, probs = _cluster_lenient_frequency(words, candidates, extractor)
-            clustering_times.append(time.perf_counter() - cluster_start)
+                for sentence in tqdm(sentences, desc=f"n={n} repeat {repeat}/{repeats}"):
+                    words = sentence.split()
 
-            if checked < validate:
-                expected_triplets, expected_probs = extractor.get_carb_prediction(
-                    words,
-                    lambda _words, *, n=1, return_span_embs=False: candidates,
-                )
-                if triplets != expected_triplets or probs != expected_probs:
-                    raise AssertionError(
-                        "split clustering output does not match extractor output"
+                    _sync_if_needed(device)
+                    model_start = time.perf_counter()
+                    candidates = model.get_triplets([words], n=n)
+                    _sync_if_needed(device)
+                    model_times.append(time.perf_counter() - model_start)
+
+                    cluster_start = time.perf_counter()
+                    triplets, probs = _cluster_lenient_frequency(
+                        words, candidates, extractor
                     )
-                checked += 1
+                    clustering_times.append(time.perf_counter() - cluster_start)
 
-        rows.append(
-            _summarize(
-                sentences=sentences,
-                k=extractor.k,
-                repeat=repeat,
-                model_times=model_times,
-                clustering_times=clustering_times,
-                device=device,
-            )
-        )
+                    if checked < validate:
+                        expected_triplets, expected_probs = (
+                            extractor.get_carb_prediction(
+                                words,
+                                lambda _words, *, n=1, return_span_embs=False: candidates,
+                            )
+                        )
+                        if triplets != expected_triplets or probs != expected_probs:
+                            raise AssertionError(
+                                "split clustering output does not match extractor output"
+                            )
+                        checked += 1
+
+                rows.append(
+                    _summarize(
+                        sentences=sentences,
+                        k=n,
+                        repeat=repeat,
+                        model_times=model_times,
+                        clustering_times=clustering_times,
+                        device=device,
+                    )
+                )
+    finally:
+        extractor.k = orig_k
 
     return rows
 
@@ -232,23 +251,25 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _print_summary(rows: list[dict[str, Any]]) -> None:
-    model_sps = _mean([row["model_sec_per_sentence"] for row in rows])
-    clustering_sps = _mean([row["clustering_sec_per_sentence"] for row in rows])
-    total_sps = _mean([row["total_sec_per_sentence"] for row in rows])
-    sent_per_sec = _mean([row["sentences_per_second"] for row in rows])
-    model_pct = _mean([row["model_percent"] for row in rows])
-    clustering_pct = _mean([row["clustering_percent"] for row in rows])
-
+    ns = sorted({row["n_samples"] for row in rows})
     print("\n--- timing summary (mean over repeats) ---")
-    print(f"k:                         {rows[0]['k']}")
-    print(f"sentences:                 {rows[0]['num_sentences']}")
-    print(f"model sec/sentence:        {model_sps:.6f} ({model_pct:.1f}%)")
+    print(f"sentences: {rows[0]['num_sentences']}   device: {rows[0]['device']}")
     print(
-        f"clustering sec/sentence:   {clustering_sps:.6f} "
-        f"({clustering_pct:.1f}%)"
+        f"{'n':>6} {'model s/sent':>13} {'clust s/sent':>13} "
+        f"{'total s/sent':>13} {'sent/s':>9} {'peak_mem_MB':>12}"
     )
-    print(f"total sec/sentence:        {total_sps:.6f}")
-    print(f"end-to-end sentences/sec:  {sent_per_sec:.3f}")
+    for n in ns:
+        n_rows = [row for row in rows if row["n_samples"] == n]
+        model_sps = _mean([r["model_sec_per_sentence"] for r in n_rows])
+        clustering_sps = _mean([r["clustering_sec_per_sentence"] for r in n_rows])
+        total_sps = _mean([r["total_sec_per_sentence"] for r in n_rows])
+        sent_per_sec = _mean([r["sentences_per_second"] for r in n_rows])
+        mem_vals = [r["peak_cuda_mem_mb"] for r in n_rows if r["peak_cuda_mem_mb"] != ""]
+        mem = _mean(mem_vals) if mem_vals else 0.0
+        print(
+            f"{n:>6} {model_sps:>13.6f} {clustering_sps:>13.6f} "
+            f"{total_sps:>13.6f} {sent_per_sec:>9.3f} {mem:>12.1f}"
+        )
 
 
 def main() -> None:
@@ -263,6 +284,17 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--ns",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "Sample counts n to sweep (sets extractor.k per point). The output "
+            "budget topk and threshold stay at the config values. Default: the "
+            "config's extractor.k."
+        ),
+    )
     parser.add_argument(
         "--validate",
         type=int,
@@ -312,6 +344,7 @@ def main() -> None:
         warmup_sentences=warmup_sentences,
         repeats=args.repeats,
         validate=args.validate,
+        ns=args.ns,
     )
     _write_csv(args.out, rows)
     _print_summary(rows)
