@@ -23,6 +23,8 @@ CONFIGS = REPO_ROOT / "configs"
 
 VARIANTS = ["50", "250", "1250", "2500", "full", "plus20k", "plus_full"]
 
+MAX_TAGGER_EPOCHS = 12
+
 
 def tagger_model_block(diffusion_model: dict) -> dict:
     """Tagger model block; reuse the source extractor so clustering is identical."""
@@ -55,6 +57,14 @@ def make_one(variant: str) -> Path:
     cfg["model"] = tagger_model_block(cfg.get("model", {}))
     out_dir = CONFIGS / f"lsoie_ex_tagger_{variant}"
     cfg["save_path"] = f"configs/lsoie_ex_tagger_{variant}"
+
+    # CaRB-dev validation uses the extractor at n=512 full-encoder MC-dropout, which
+    # is expensive on a single GPU. For a baseline we don't need it every epoch: run
+    # it ~twice (mid + end). Always < num_epochs so at least one do_full epoch fires
+    # and a checkpoint_best.pt is saved for the orchestrator to stash.
+    num_epochs = min(int(cfg.get("num_epochs", 12)), MAX_TAGGER_EPOCHS)
+    cfg["num_epochs"] = num_epochs
+    cfg["val_full_interval"] = max(1, num_epochs // 2)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"lsoie_ex_tagger_{variant}_config.yaml"
