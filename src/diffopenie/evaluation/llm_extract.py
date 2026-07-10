@@ -152,7 +152,9 @@ def extract_triplets_llm(
     examples_text: str,
     workers: int = 8,
 ) -> dict[str, list[tuple[str, ...]]]:
-    system_msg = SYSTEM_PROMPT.format(examples=examples_text)
+    # .replace (not .format): SYSTEM_PROMPT contains literal JSON braces that
+    # str.format would misread as fields.
+    system_msg = SYSTEM_PROMPT.replace("{examples}", examples_text)
     results: dict[str, list[tuple[str, ...]]] = {}
 
     def _do(sent: str):
