@@ -15,13 +15,6 @@ Usage:
         --gold benchmarks/CaRB/data/gold/dev.tsv \
         --model Qwen/Qwen2.5-7B-Instruct \
         --workers 8 --limit 200 --timing-out carb_output/qwen_timing.json
-
-Fairness notes:
-- Report on CaRB dev (few-shot exemplars below are from CaRB *test* gold, so they
-  do not contaminate a dev evaluation). If you switch to test, pass
-  --gold-examples benchmarks/CaRB/data/gold/dev.tsv instead.
-- For a latency number comparable to timing_benchmark (single stream), run with
-  --workers 1. Use --workers >1 only to report concurrent server throughput.
 """
 
 from __future__ import annotations
@@ -193,10 +186,7 @@ def main() -> None:
                     default=Path("carb_output/llm_extractions.tsv"))
     ap.add_argument("--gold", type=Path, default=None,
                     help="CaRB gold TSV; if given, print in-house CaRB metrics")
-    ap.add_argument("--gold-examples", type=Path, default=None,
-                    help="Gold TSV to draw few-shot exemplars from (must NOT be "
-                         "the split you evaluate on). Use LSOIE-style gold for a "
-                         "fairer, non-CaRB-coached prompt.")
+    ap.add_argument("--gold-examples", type=Path, default=None,)
     ap.add_argument("--zero-shot", action="store_true",
                     help="No few-shot exemplars — task instructions only.")
     ap.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct")
