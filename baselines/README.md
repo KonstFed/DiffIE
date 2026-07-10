@@ -4,12 +4,22 @@ This folder holds local baseline setup and timing helpers.
 
 ## DetIE on CaRB dev
 
-Use the bash scripts here on the A100 server:
+Use one of the bash setup scripts on the A100 server:
 
 ```bash
 # From the DiffIE repo root.
 bash baselines/setup_detie_local.sh
 ```
+
+That path uses micromamba under `baselines/.micromamba`, with no sudo. If you
+prefer a plain `venv` + pip path, use:
+
+```bash
+bash baselines/setup_detie_pip.sh
+```
+
+DetIE does not use `uv`; upstream dependency pins live in
+`baselines/DetIE/context/requirements.txt`.
 
 Then download the DetIE files bundle from the upstream README:
 
