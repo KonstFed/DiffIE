@@ -7,6 +7,7 @@ DETIE_DIR="${DETIE_DIR:-$BASELINES_DIR/DetIE}"
 ENV_PREFIX="${DETIE_ENV_PREFIX:-$BASELINES_DIR/.envs/detie}"
 MAMBA_ROOT="${MAMBA_ROOT_PREFIX:-$BASELINES_DIR/.micromamba}"
 DETIE_REPO="${DETIE_REPO:-https://github.com/sberbank-ai/DetIE}"
+export MAMBA_ROOT_PREFIX="$MAMBA_ROOT"
 
 mkdir -p "$BASELINES_DIR"
 
@@ -74,4 +75,3 @@ Copy the LSOIE checkpoint folder so these files exist:
 Then run:
   bash "$BASELINES_DIR/time_detie_carb_dev.sh"
 EOF
-
