@@ -33,6 +33,7 @@ MODEL="${MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}"
 TP="${TP:-2}"
 PORT="${PORT:-8000}"
 MAX_LEN="${MAX_LEN:-8192}"
+MEM_UTIL="${MEM_UTIL:-0.90}"   # raise toward 0.95 to fit 30B on a single 80GB card
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 
 echo "=================================================================="
@@ -49,4 +50,5 @@ echo "=================================================================="
 exec uv run --with vllm vllm serve "$MODEL" \
     --host 0.0.0.0 --port "$PORT" \
     --tensor-parallel-size "$TP" \
+    --gpu-memory-utilization "$MEM_UTIL" \
     --dtype bfloat16 --max-model-len "$MAX_LEN"
