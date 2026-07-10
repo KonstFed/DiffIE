@@ -1,4 +1,4 @@
-"""Sweep tau/k/n sensitivity on BenchIE and WiRe57 from cached samples.
+"""Sweep tau/k/n sensitivity on CaRB dev, BenchIE and WiRe57 from cached samples.
 
 This is the rebuttal point-3 experiment: keep the CaRB-dev-selected operating
 point fixed, vary one extractor parameter at a time, and score the transferred
@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -32,12 +33,16 @@ from diffopenie.evaluation.benchie_eval import (
     write_predictions as write_benchie_predictions,
 )
 from diffopenie.evaluation.carb_eval import extract_span_text, load_model
+from diffopenie.evaluation.carb_metrics import Extraction
 from diffopenie.evaluation.wire57_eval import (
     load_wire57_gold,
     load_wire_scorer,
 )
+from diffopenie.plotting.lsoie_cache_curve_plot import (
+    _to_triplet,
+    evaluate_with_carb_benchmark,
+)
 from diffopenie.models.discrete.extractors import LenientFrequencyExtractorConfig
-from diffopenie.plotting.lsoie_cache_curve_plot import _to_triplet
 from diffopenie.training.train_example import TrainingConfig
 from diffopenie.utils import load_config
 
@@ -122,7 +127,9 @@ def _extract(rows: list[dict[str, Any]], *, n: int, topk: int, threshold: float)
             relation = extract_span_text(words, pred_span)
             if subject and relation and object_:
                 exs.append((subject, relation, object_, float(prob)))
-        predictions.append({"id": row["id"], "extractions": exs})
+        predictions.append(
+            {"id": row["id"], "sentence": row["sentence"], "extractions": exs}
+        )
     return predictions
 
 
@@ -137,6 +144,34 @@ def _score_benchie(Benchie, gold_path: Path, predictions) -> dict[str, float]:
         pred_path = Path(tmpdir) / "predictions.tsv"
         write_benchie_predictions(rows, pred_path)
         return report_benchie(Benchie, gold_path, pred_path, system_name="diffopenie")
+
+
+def _score_carb_dev(
+    gold_path: Path,
+    predictions,
+    *,
+    carb_python: str,
+) -> dict[str, float]:
+    pred_by_sentence: dict[str, list[Extraction]] = {}
+    for pred in predictions:
+        exs = [
+            Extraction(pred=relation, args=[subject, object_], confidence=prob)
+            for subject, relation, object_, prob in pred["extractions"]
+        ]
+        if exs:
+            pred_by_sentence[pred["sentence"]] = exs
+
+    result = evaluate_with_carb_benchmark(
+        gold_path,
+        pred_by_sentence,
+        carb_python=carb_python,
+        binary=False,
+    )
+    return {
+        "precision": result.precision,
+        "recall": result.recall,
+        "f1": result.f1,
+    }
 
 
 def _score_wire57(wire_scorer, gold: dict, predictions) -> dict[str, float]:
@@ -181,14 +216,14 @@ def _write_csv(rows: list[dict[str, Any]], path: Path) -> None:
 
 
 def _plot(rows: list[dict[str, Any]], out_prefix: Path) -> None:
-    benchmarks = ["BenchIE", "WiRe57"]
+    benchmarks = ["CaRB dev", "BenchIE", "WiRe57"]
     sweeps = [
         ("tau", "threshold", "threshold"),
         ("k", "topk", "top-k extractions"),
         ("n", "n", "samples per sentence"),
     ]
 
-    fig, axes = plt.subplots(2, 3, figsize=(11.5, 6.2), sharey=False)
+    fig, axes = plt.subplots(3, 3, figsize=(11.5, 8.2), sharey=False)
     for row_idx, benchmark in enumerate(benchmarks):
         bench_rows = [r for r in rows if r["benchmark"] == benchmark]
         for col_idx, (sweep_name, x_key, x_label) in enumerate(sweeps):
@@ -203,11 +238,13 @@ def _plot(rows: list[dict[str, Any]], out_prefix: Path) -> None:
                 ax.axvline(op, color="0.25", linestyle="--", linewidth=1.0)
             if col_idx == 0:
                 ax.set_ylabel(f"{benchmark}\nF1")
-            if row_idx == 1:
+            if row_idx == len(benchmarks) - 1:
                 ax.set_xlabel(x_label)
             ax.grid(True, alpha=0.25)
             if x_key == "n":
                 ax.set_xscale("log", base=2)
+                ax.set_xticks(xs)
+                ax.set_xticklabels([str(x) for x in xs])
             vals = ys or [0.0]
             pad = max(0.01, (max(vals) - min(vals)) * 0.15)
             ax.set_ylim(max(0.0, min(vals) - pad), min(1.0, max(vals) + pad))
@@ -242,6 +279,15 @@ def _benchie_items(benchie_root: Path, language: str) -> tuple[list[dict[str, An
     ], gold_path
 
 
+def _carb_items(sentences_path: Path) -> list[dict[str, Any]]:
+    with open(sentences_path, "r", encoding="utf-8") as f:
+        sentences = [line.strip() for line in f if line.strip()]
+    return [
+        {"id": idx, "sentence": sentence, "words": sentence.split()}
+        for idx, sentence in enumerate(sentences, start=1)
+    ]
+
+
 def _wire57_items(wire57_root: Path) -> tuple[list[dict[str, Any]], dict, dict]:
     gold, sentences = load_wire57_gold(wire57_root)
     items = [
@@ -265,7 +311,9 @@ def main() -> None:
     parser.add_argument("--wire57-root", type=Path, default=Path("benchmarks/WiRe57"))
     parser.add_argument("--language", default="en", choices=["en", "de", "zh"])
     parser.add_argument("--benchie-cache", type=Path, default=None)
+    parser.add_argument("--carb-cache", type=Path, default=None)
     parser.add_argument("--wire57-cache", type=Path, default=None)
+    parser.add_argument("--carb-python", type=str, default=None)
     parser.add_argument("--taus", type=float, nargs="+", default=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95])
     parser.add_argument("--ks", type=int, nargs="+", default=[1, 2, 3, 4, 6, 8, 10])
     parser.add_argument("--ns", type=int, nargs="+", default=None)
@@ -281,13 +329,18 @@ def main() -> None:
         raise ValueError(f"--max-n must be >= operating n ({default_n})")
 
     out_dir = args.out_dir
+    carb_cache = args.carb_cache or out_dir / f"cache_carb_dev_{max_n}.jsonl"
     benchie_cache = args.benchie_cache or out_dir / f"cache_benchie_{max_n}.jsonl"
     wire57_cache = args.wire57_cache or out_dir / f"cache_wire57_{max_n}.jsonl"
 
+    carb_sentences_path = Path(config.trainer.carb_sentences_path)
+    carb_gold_path = Path(config.trainer.carb_gold_path)
+    carb_items = _carb_items(carb_sentences_path)
     benchie_items, benchie_gold_path = _benchie_items(args.benchie_root, args.language)
     wire57_items, wire57_gold, _wire57_sentences = _wire57_items(args.wire57_root)
+    carb_python = args.carb_python or sys.executable
 
-    missing_caches = [p for p in (benchie_cache, wire57_cache) if not p.exists()]
+    missing_caches = [p for p in (carb_cache, benchie_cache, wire57_cache) if not p.exists()]
     if missing_caches:
         if args.checkpoint_path is None:
             raise FileNotFoundError(
@@ -297,14 +350,18 @@ def main() -> None:
             )
         print("Loading model for cache creation...")
         model = load_model(config, args.checkpoint_path)
+        if not carb_cache.exists():
+            _sample_cache(model, carb_items, max_n, carb_cache)
         if not benchie_cache.exists():
             _sample_cache(model, benchie_items, max_n, benchie_cache)
         if not wire57_cache.exists():
             _sample_cache(model, wire57_items, max_n, wire57_cache)
 
+    carb_cache_rows = _load_cache(carb_cache)
     benchie_cache_rows = _load_cache(benchie_cache)
     wire57_cache_rows = _load_cache(wire57_cache)
     min_cached_n = min(
+        min(len(row["samples"]) for row in carb_cache_rows),
         min(len(row["samples"]) for row in benchie_cache_rows),
         min(len(row["samples"]) for row in wire57_cache_rows),
     )
@@ -324,11 +381,18 @@ def main() -> None:
 
     def eval_point(sweep: str, n: int, topk: int, tau: float) -> None:
         for benchmark, cache_rows, scorer in [
+            ("CaRB dev", carb_cache_rows, "carb"),
             ("BenchIE", benchie_cache_rows, "benchie"),
             ("WiRe57", wire57_cache_rows, "wire57"),
         ]:
             predictions = _extract(cache_rows, n=n, topk=topk, threshold=tau)
-            if scorer == "benchie":
+            if scorer == "carb":
+                metrics = _score_carb_dev(
+                    carb_gold_path,
+                    predictions,
+                    carb_python=carb_python,
+                )
+            elif scorer == "benchie":
                 metrics = _score_benchie(Benchie, benchie_gold_path, predictions)
             else:
                 metrics = _score_wire57(wire_scorer, wire57_gold, predictions)
@@ -367,6 +431,7 @@ def main() -> None:
             {
                 "config": str(args.config),
                 "checkpoint_path": str(args.checkpoint_path) if args.checkpoint_path else None,
+                "carb_cache": str(carb_cache),
                 "benchie_cache": str(benchie_cache),
                 "wire57_cache": str(wire57_cache),
                 "rows": rows,
