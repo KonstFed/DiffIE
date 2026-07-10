@@ -51,7 +51,16 @@ run_once() {
     cd "$DETIE_DIR"
     PYTHONPATH=. python3 modules/model/test.py "model.best_version=$VERSION"
   ) 2>&1 | tee "$log_path" >&2
-  awk '/^[0-9]+([.][0-9]+)?$/ { value=$1 } END { if (value != "") print value }' "$log_path"
+  python3 - "$log_path" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(errors="replace")
+matches = re.findall(r"(?<![A-Za-z])(?:\d+\.\d+|\d+)(?![A-Za-z])", text)
+if matches:
+    print(matches[-1])
+PY
 }
 
 for i in $(seq 1 "$WARMUP"); do
