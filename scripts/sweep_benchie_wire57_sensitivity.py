@@ -315,7 +315,7 @@ def main() -> None:
     parser.add_argument("--wire57-cache", type=Path, default=None)
     parser.add_argument("--carb-python", type=str, default=None)
     parser.add_argument("--taus", type=float, nargs="+", default=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95])
-    parser.add_argument("--ks", type=int, nargs="+", default=[1, 2, 3, 4, 6, 8, 10])
+    parser.add_argument("--ks", type=int, nargs="+", default=[1, 2, 4, 6, 8, 10])
     parser.add_argument("--ns", type=int, nargs="+", default=None)
     args = parser.parse_args()
 
