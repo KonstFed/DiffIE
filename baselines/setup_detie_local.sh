@@ -38,24 +38,26 @@ eval "$("$MAMBA_BIN" shell hook -s bash)"
 if [[ ! -d "$ENV_PREFIX" ]]; then
   micromamba create -y -p "$ENV_PREFIX" -c pytorch -c conda-forge \
     python=3.8 pip cmake cython numpy=1.19.4 pandas=1.1.5 \
-    pytorch=1.7.1 cudatoolkit=11.0 lapsolver=1.1.0
+    pytorch=1.7.1 cudatoolkit=11.0
 else
   echo "Environment already exists at $ENV_PREFIX"
 fi
 
 micromamba activate "$ENV_PREFIX"
-if ! python - <<'PY' >/dev/null 2>&1
-import lapsolver
-PY
-then
-  micromamba install -y -p "$ENV_PREFIX" -c conda-forge lapsolver=1.1.0
-fi
 python -m pip install --upgrade "pip<24" "setuptools<60" wheel
 
 REQ_FILTERED="$(mktemp)"
 grep -Ev '^(torch|lapsolver)==' "$DETIE_DIR/context/requirements.txt" > "$REQ_FILTERED"
 python -m pip install -r "$REQ_FILTERED"
 rm -f "$REQ_FILTERED"
+
+cat <<'EOF'
+
+NOTE: skipped DetIE's lapsolver pin. It fails to build on many modern cluster
+nodes and is not expected to be needed for the inference timing path. If the
+timing script later errors with "No module named lapsolver", we will patch that
+specific import path instead of compiling lapsolver.
+EOF
 
 python -m spacy download en_core_web_sm
 python - <<'PY'
