@@ -96,11 +96,7 @@ auxiliary verbs, prepositions, or other words needed for meaning.
 - Use the exact words from the sentence as much as possible.
 - Include temporal and locative modifiers as extra arguments when present.
 - Output ONLY valid JSON: {"extractions": [{"predicate": "...", \
-"arguments": ["...", ...]}, ...]}. If none, output {"extractions": []}.
-
-Here are examples:
-
-{examples}"""
+"arguments": ["...", ...]}, ...]}. If none, output {"extractions": []}."""
 
 
 def _extract_single(
@@ -152,9 +148,10 @@ def extract_triplets_llm(
     examples_text: str,
     workers: int = 8,
 ) -> dict[str, list[tuple[str, ...]]]:
-    # .replace (not .format): SYSTEM_PROMPT contains literal JSON braces that
-    # str.format would misread as fields.
-    system_msg = SYSTEM_PROMPT.replace("{examples}", examples_text)
+    # Zero-shot when examples_text is empty; else append the few-shot block.
+    system_msg = SYSTEM_PROMPT
+    if examples_text:
+        system_msg = SYSTEM_PROMPT + "\n\nHere are examples:\n\n" + examples_text
     results: dict[str, list[tuple[str, ...]]] = {}
 
     def _do(sent: str):
@@ -197,8 +194,11 @@ def main() -> None:
     ap.add_argument("--gold", type=Path, default=None,
                     help="CaRB gold TSV; if given, print in-house CaRB metrics")
     ap.add_argument("--gold-examples", type=Path, default=None,
-                    help="CaRB gold TSV to draw few-shot exemplars from "
-                         "(must NOT be the split you evaluate on)")
+                    help="Gold TSV to draw few-shot exemplars from (must NOT be "
+                         "the split you evaluate on). Use LSOIE-style gold for a "
+                         "fairer, non-CaRB-coached prompt.")
+    ap.add_argument("--zero-shot", action="store_true",
+                    help="No few-shot exemplars — task instructions only.")
     ap.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct")
     ap.add_argument("--workers", type=int, default=8,
                     help="Concurrent requests. Use 1 for single-stream latency.")
@@ -209,15 +209,18 @@ def main() -> None:
                     help="Write a timing JSON (wall-clock, sec/sent, sent/s).")
     args = ap.parse_args()
 
-    if args.gold_examples:
+    if args.zero_shot:
+        examples_text = ""
+        print("Zero-shot: task instructions only, no exemplars")
+    elif args.gold_examples:
         examples = build_examples_from_gold(args.gold_examples, args.max_examples)
         print(f"Few-shot: {len(examples)} exemplars from {args.gold_examples}")
+        examples_text = format_examples_for_prompt(examples)
     else:
         raise SystemExit(
-            "Pass --gold-examples <CaRB gold TSV> from a split you are NOT "
-            "evaluating on (e.g. gold/test.tsv when reporting on dev)."
+            "Pass --zero-shot, or --gold-examples <gold TSV> from a split you are "
+            "NOT evaluating on (e.g. gold/test.tsv when reporting on dev)."
         )
-    examples_text = format_examples_for_prompt(examples)
 
     with open(args.input_sentences, encoding="utf-8") as f:
         sentences = [line.strip() for line in f if line.strip()]
