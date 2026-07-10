@@ -20,6 +20,9 @@ bash baselines/setup_detie_pip.sh
 
 DetIE does not use `uv`; upstream dependency pins live in
 `baselines/DetIE/context/requirements.txt`.
+The setup applies a local import fallback for DetIE's `lapsolver` dependency,
+which is only needed by the training loss and often fails to compile on cluster
+nodes.
 
 Then download the DetIE files bundle from the upstream README:
 

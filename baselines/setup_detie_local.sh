@@ -21,6 +21,8 @@ else
   echo "DetIE checkout already exists at $DETIE_DIR"
 fi
 
+bash "$BASELINES_DIR/patch_detie_no_lapsolver.sh"
+
 if command -v micromamba >/dev/null 2>&1; then
   MAMBA_BIN="$(command -v micromamba)"
 else
