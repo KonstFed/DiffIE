@@ -36,7 +36,7 @@ fi
 eval "$("$MAMBA_BIN" shell hook -s bash)"
 
 if [[ ! -d "$ENV_PREFIX" ]]; then
-  micromamba create -y -p "$ENV_PREFIX" -c pytorch -c conda-forge \
+  micromamba create -y -p "$ENV_PREFIX" -c pytorch -c defaults -c conda-forge \
     python=3.8 pip cmake cython numpy=1.19.4 pandas=1.1.5 \
     pytorch=1.7.1 cudatoolkit=11.0 "mkl<2024.1" "intel-openmp<2024.1"
 else
@@ -44,7 +44,7 @@ else
 fi
 
 micromamba activate "$ENV_PREFIX"
-micromamba install -y -p "$ENV_PREFIX" -c pytorch -c conda-forge \
+micromamba install -y -p "$ENV_PREFIX" -c pytorch -c defaults -c conda-forge \
   "mkl<2024.1" "intel-openmp<2024.1"
 python -m pip install --upgrade "pip<24" "setuptools<60" wheel
 
