@@ -18,7 +18,7 @@
 # Stop the server when done:  scancel <jobid>
 
 #SBATCH --job-name=vllm-qwen
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=10
 #SBATCH --mem-per-gpu=80G
 #SBATCH --time=12:00:00
@@ -30,10 +30,10 @@ set -euo pipefail
 # via tensor parallel for comfortable KV headroom. For a 7B/14B set MODEL=... and
 # submit with --gres=gpu:1 TP=1.
 MODEL="${MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}"
-TP="${TP:-2}"
+TP="${TP:-1}"                  # 1 GPU by default (30B bf16 ~60GB fits one 80GB A100)
 PORT="${PORT:-8000}"
 MAX_LEN="${MAX_LEN:-8192}"
-MEM_UTIL="${MEM_UTIL:-0.90}"   # raise toward 0.95 to fit 30B on a single 80GB card
+MEM_UTIL="${MEM_UTIL:-0.95}"   # high util to leave room for KV on a single card
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 
 echo "=================================================================="
