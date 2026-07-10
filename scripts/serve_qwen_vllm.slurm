@@ -44,8 +44,9 @@ echo "=================================================================="
 # --host 0.0.0.0 so another node can reach it; xgrammar enables the JSON
 # response_format the extractor uses. If `uv` is not on the node PATH, activate
 # a venv that has vllm instead (source ~/venvs/<env>/bin/activate; vllm serve ...).
+# (recent vLLM auto-selects the guided-decoding backend; response_format still
+# works, so no --guided-decoding-backend flag is needed / accepted.)
 exec uv run --with vllm vllm serve "$MODEL" \
     --host 0.0.0.0 --port "$PORT" \
     --tensor-parallel-size "$TP" \
-    --dtype bfloat16 --max-model-len "$MAX_LEN" \
-    --guided-decoding-backend xgrammar
+    --dtype bfloat16 --max-model-len "$MAX_LEN"
