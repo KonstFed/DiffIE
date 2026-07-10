@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import torch
 from tqdm import tqdm
 
@@ -215,6 +216,21 @@ def _write_csv(rows: list[dict[str, Any]], path: Path) -> None:
         writer.writerows(rows)
 
 
+def _read_csv(path: Path) -> list[dict[str, Any]]:
+    int_fields = {"n", "topk", "default_n", "default_topk"}
+    float_fields = {"threshold", "default_threshold", "precision", "recall", "f1"}
+    rows: list[dict[str, Any]] = []
+    with open(path, "r", newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            for key in int_fields:
+                row[key] = int(row[key])
+            for key in float_fields:
+                row[key] = float(row[key])
+            row["operating_point"] = str(row["operating_point"]).lower() == "true"
+            rows.append(row)
+    return rows
+
+
 def _plot(rows: list[dict[str, Any]], out_prefix: Path) -> None:
     benchmarks = ["CaRB dev", "BenchIE", "WiRe57"]
     sweeps = [
@@ -251,7 +267,21 @@ def _plot(rows: list[dict[str, Any]], out_prefix: Path) -> None:
             if row_idx == 0:
                 ax.set_title(sweep_name)
 
-    fig.tight_layout()
+    operating_handle = Line2D(
+        [0],
+        [0],
+        color="0.25",
+        linestyle="--",
+        linewidth=1.0,
+        label="dashed line: CaRB-dev operating point",
+    )
+    fig.legend(
+        handles=[operating_handle],
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.01),
+        frameon=False,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.975))
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     for suffix in (".png", ".pdf"):
         path = out_prefix.with_suffix(suffix)
@@ -303,7 +333,7 @@ def _wire57_items(wire57_root: Path) -> tuple[list[dict[str, Any]], dict, dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--checkpoint-path", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--max-n", type=int, default=None)
@@ -317,7 +347,27 @@ def main() -> None:
     parser.add_argument("--taus", type=float, nargs="+", default=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95])
     parser.add_argument("--ks", type=int, nargs="+", default=[1, 2, 4, 6, 8, 10])
     parser.add_argument("--ns", type=int, nargs="+", default=None)
+    parser.add_argument(
+        "--plot-only-csv",
+        type=Path,
+        default=None,
+        help="Regenerate only the sensitivity plot from an existing CSV.",
+    )
+    parser.add_argument(
+        "--plot-out-prefix",
+        type=Path,
+        default=None,
+        help="Output prefix for --plot-only-csv; defaults to <out-dir>/sensitivity_curves.",
+    )
     args = parser.parse_args()
+
+    if args.plot_only_csv is not None:
+        out_prefix = args.plot_out_prefix or args.out_dir / "sensitivity_curves"
+        _plot(_read_csv(args.plot_only_csv), out_prefix)
+        return
+
+    if args.config is None:
+        raise ValueError("--config is required unless --plot-only-csv is used")
 
     config = load_config(TrainingConfig, args.config)
     extractor_cfg = config.model.extractor
