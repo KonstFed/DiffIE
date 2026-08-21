@@ -66,6 +66,13 @@ hosted on Hugging Face and mirror the `configs/` layout:
 The repository is [KonstFed/diffIE](https://huggingface.co/KonstFed/diffIE);
 override it with `DIFFIE_HF_REPO` if you mirror it elsewhere.
 
+`weights.pt` is released for `lsoie_ex_2500` (the primary model), `lsoie_ex_full`
+and `lsoie_ex_full_mdlm`. The remaining data-ablation variants ship cached
+per-seed extractions only, so `score_dev_n_times.sh` reproduces Table 2 in full
+while `eval_dev_n_times.sh` will skip them; retrain those with
+`./scripts/train_all.sh --only <name>` if you need the checkpoints. Tagger
+baselines are trained from their configs (see below) — no checkpoint is shipped.
+
 ## Streamlit demo
 
 ```bash
@@ -185,6 +192,7 @@ uv run python scripts/sweep_benchie_wire57_sensitivity.py \
 uv run python -m diffopenie.evaluation.timing_benchmark \
     --config configs/lsoie_ex_2500/lsoie_ex_2500_config.yaml \
     --checkpoint-path configs/lsoie_ex_2500/weights.pt \
+    --input-sentences benchmarks/CaRB/data/dev.txt \
     --out timing_diffie.csv
 ```
 
@@ -199,8 +207,8 @@ against measured cost per sentence.
 ```bash
 uv run python -m diffopenie.evaluation.generate_cli \
     --config configs/lsoie_ex_2500/lsoie_ex_2500_config.yaml \
-    --checkpoint-path configs/lsoie_ex_2500/weights.pt \
-    --sentences "Marie Curie discovered radium in 1898 ."
+    --checkpoint configs/lsoie_ex_2500/weights.pt \
+    --text "Marie Curie discovered radium in 1898 ."
 ```
 
 ## Hyperparameters
