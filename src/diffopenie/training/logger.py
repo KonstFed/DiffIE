@@ -231,6 +231,10 @@ class TrainingLogger:
     ):
         if self.log_path is None:
             return
+        # Non-diffusion / single-step models (e.g. the MC-dropout tagger, T=1) have
+        # no meaningful per-timestep loss curve; nothing to plot.
+        if per_t_loss.dim() == 0 or per_t_loss.numel() < 2:
+            return
         plot_path = self.log_path.parent / "per_t_loss.png"
         t_vals = torch.arange(1, len(per_t_loss) + 1).numpy()
         train_vals = per_t_loss.cpu().numpy()

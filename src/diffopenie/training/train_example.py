@@ -27,6 +27,7 @@ from diffopenie.data.imojie import (
 )
 from diffopenie.data.lsoie import GroupedSequenceLSOEIDatasetConfig
 from diffopenie.models.discrete.discrete_model import DiscreteModelConfig
+from diffopenie.models.mc_dropout_tagger import MCDropoutTaggerConfig
 from diffopenie.training.trainer import Trainer, TrainerConfig
 from diffopenie.utils import load_config
 
@@ -72,7 +73,9 @@ class TrainingConfig(BaseModel):
 
     seed: Optional[int] = 38  # default inference/training seed
     trainer: TrainerConfig
-    model: DiscreteModelConfig
+    # Non-discriminated union: extra="forbid" on both makes them structurally
+    # exclusive (diffusion configs carry scheduler/denoiser; the tagger forbids them).
+    model: DiscreteModelConfig | MCDropoutTaggerConfig
     data: DataConfig
 
     num_epochs: int = 10

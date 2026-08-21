@@ -16,6 +16,7 @@ from diffopenie.evaluation.carb_metrics import (
     load_predicted_file,
 )
 from diffopenie.models.discrete.discrete_model import DiscreteModel
+from diffopenie.models.mc_dropout_tagger import MCDropoutTagger
 from diffopenie.training.train_example import TrainingConfig
 from diffopenie.utils import load_config, seed_everything
 
@@ -23,7 +24,7 @@ from diffopenie.utils import load_config, seed_everything
 def load_model(
     config: TrainingConfig,
     checkpoint_path: Path,
-) -> DiscreteModel:
+) -> DiscreteModel | MCDropoutTagger:
     seed_everything(config.seed, deterministic=True)
     model = config.model.create()
     trainer = config.trainer.create(model=model)
