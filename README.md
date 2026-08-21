@@ -61,12 +61,8 @@ hosted on Hugging Face and mirror the `configs/` layout:
 ./scripts/fetch_artifacts.sh
 ```
 
-Set `REPO` in that script to the artifact repository. It is private during
-review; log in once with a read token:
-
-```bash
-uvx --from "huggingface_hub[cli]" hf auth login
-```
+The repository is [KonstFed/diffIE](https://huggingface.co/KonstFed/diffIE);
+override it with `DIFFIE_HF_REPO` if you mirror it elsewhere.
 
 ## Streamlit demo
 
