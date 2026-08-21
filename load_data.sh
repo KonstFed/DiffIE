@@ -64,5 +64,4 @@ fi
 echo ""
 echo "Done. Verify with:"
 echo "  ls $REPO_ROOT/benchmarks/CaRB/data/gold/dev.tsv"
-echo "  ls $REPO_ROOT/dataset/data/train/4cr_qpbo_extractions.tsv"
 echo "  ls $REPO_ROOT/dataset/cycleoie/lsoie-g-examples.tsv"

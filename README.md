@@ -15,11 +15,13 @@ uv sync
 
 `load_data.sh` fetches:
 
-- IMoJIE training data (Zenodo 3775983) → `dataset/data/`
 - CaRB → `benchmarks/CaRB/`
 - WiRe57 → `benchmarks/WiRe57/`
 - BenchIE → `benchmarks/benchie/`
 - CycleOIE's curated LSOIE-G subsets → `dataset/cycleoie/`
+
+The `plus20k` / `plus_full` configs additionally mix in original LSOIE, which
+`datasets` pulls from the Hub (`wardenga/lsoie`) on first use — no manual step.
 
 Python 3.12 is required (see `pyproject.toml`).
 
