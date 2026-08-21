@@ -231,3 +231,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Artifacts pulled by scripts/fetch_artifacts.sh (weights are covered by *.pt)
+configs/README.md
+configs/.gitattributes
+configs/*/carb_dev/
+configs/*/carb_test/
+configs/*/benchie/
+configs/*/wire57/
+configs/*/n_study/
