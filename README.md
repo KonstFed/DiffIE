@@ -37,6 +37,12 @@ scripts/        bash entry points:
                   score_dev_n_times.sh   print dev metrics from cached extractions
                   score_dev.sh           run the real CaRB scorer on dev predictions
                   plot_n_study.sh        Figure 1 — n-study cache + curve plot
+                  make_tagger_configs.py generate the MC-dropout tagger configs
+                  sweep_k.py             re-cluster a cached pool over k/n/tau
+                  sweep_benchie_wire57_sensitivity.py
+                                         tau/k/n transfer study on all benchmarks
+                  plot_quality_cost.py   quality-cost curve (F1 vs seconds/sentence)
+baselines/      DetIE setup and timing runners (see baselines/README.md).
 src/diffopenie/ Python package: data, diffusion kernels, encoder + denoiser, training,
                 evaluation, plotting.
 tests/          unit tests for span handling, CaRB metrics, label mapping.
@@ -48,7 +54,19 @@ matches the paper subset (`lsoie_ex_50`, `lsoie_ex_full`, etc.) and contains
 
 ## Artifacts
 
-Trained weights and cached predictions are not provided yet but will be soon
+Trained weights, cached per-seed predictions, and the n-study sample caches are
+hosted on Hugging Face and mirror the `configs/` layout:
+
+```bash
+./scripts/fetch_artifacts.sh
+```
+
+Set `REPO` in that script to the artifact repository. It is private during
+review; log in once with a read token:
+
+```bash
+uvx --from "huggingface_hub[cli]" hf auth login
+```
 
 ## Streamlit demo
 
@@ -126,6 +144,57 @@ The first run caches 1024 raw triplets per CaRB-dev sentence to
 `configs/lsoie_ex_2500/n_study/cache_dev_1024.jsonl` (slow). Subsequent runs
 reuse the cache and only re-render the plot. Output:
 `configs/lsoie_ex_2500/n_study/curve{.csv,.png,.pdf}` plus the F1-only variant.
+
+### MC-dropout tagger control (non-diffusion baseline)
+
+Same encoder, label space, span decoding and clustering as DiffIE; reverse
+diffusion is replaced by full-encoder MC dropout, so the candidate generator is
+the only difference. Configs are generated from the diffusion ones:
+
+```bash
+uv run python scripts/make_tagger_configs.py
+uv run python -m diffopenie.training.train_example \
+    configs/lsoie_ex_tagger_2500/lsoie_ex_tagger_2500_config.yaml
+```
+
+Evaluation reuses `carb_eval` unchanged. To sweep the operating point over a
+cached candidate pool without re-running the model:
+
+```bash
+uv run python scripts/sweep_k.py \
+    --config configs/lsoie_ex_tagger_2500/lsoie_ex_tagger_2500_config.yaml \
+    --cache configs/lsoie_ex_tagger_2500/n_study/cache_dev_512.jsonl \
+    --out configs/lsoie_ex_tagger_2500/n_study/k_sweep.json \
+    --ks 1 2 3 4 6 8 10
+```
+
+### tau / k / n sensitivity across benchmarks
+
+Holds the CaRB-dev-selected operating point (n=512, k=4, tau=0.9) fixed and
+varies one parameter at a time on CaRB dev, BenchIE and WiRe57:
+
+```bash
+uv run python scripts/sweep_benchie_wire57_sensitivity.py \
+    --config configs/lsoie_ex_2500/lsoie_ex_2500_config.yaml \
+    --checkpoint-path configs/lsoie_ex_2500/weights.pt \
+    --out-dir configs/lsoie_ex_2500/sensitivity \
+    --max-n 512
+```
+
+### Efficiency — throughput, latency, memory
+
+```bash
+uv run python -m diffopenie.evaluation.timing_benchmark \
+    --config configs/lsoie_ex_2500/lsoie_ex_2500_config.yaml \
+    --checkpoint-path configs/lsoie_ex_2500/weights.pt \
+    --out timing_diffie.csv
+```
+
+`scripts/timing_a100.slurm` runs the same sweep on a single A100. Baselines:
+DetIE via `baselines/` (setup, evaluation and timing scripts), and a prompted
+LLM via `scripts/serve_qwen_vllm.slurm` plus
+`diffopenie.evaluation.llm_extract`. `scripts/plot_quality_cost.py` renders F1
+against measured cost per sentence.
 
 ## Free-form prediction
 
