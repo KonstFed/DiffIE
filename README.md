@@ -73,11 +73,29 @@ while `eval_dev_n_times.sh` will skip them; retrain those with
 `./scripts/train_all.sh --only <name>` if you need the checkpoints. Tagger
 baselines are trained from their configs (see below) — no checkpoint is shipped.
 
-## Streamlit demo
+## Interactive demo
+
+Type a sentence, watch the reverse-diffusion trajectory denoise it into role
+tags step by step, and read off the clustered triplets.
 
 ```bash
+./scripts/fetch_artifacts.sh    # once — pulls the checkpoint (~1.1 GB)
 uv run streamlit run src/diffopenie/evaluation/app.py
 ```
+
+It defaults to the primary model (`configs/lsoie_ex_2500`). To point it at
+another checkpoint, pass arguments after Streamlit's `--` separator:
+
+```bash
+uv run streamlit run src/diffopenie/evaluation/app.py -- \
+    --config configs/lsoie_ex_full_mdlm/lsoie_ex_full_mdlm_config.yaml \
+    --checkpoint configs/lsoie_ex_full_mdlm/weights.pt
+```
+
+The sidebar exposes the inference-time knobs from the paper — sample count `n`,
+returned triplets `k`, and the lenient-match threshold `tau` — so you can watch
+quality and cost trade off live. Streamlit binds every interface by default; add
+`--server.address localhost` to keep it local.
 
 ## Reproducing the paper
 
